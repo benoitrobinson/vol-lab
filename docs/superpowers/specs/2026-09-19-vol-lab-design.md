@@ -1,8 +1,12 @@
 # vol-lab: design
 
 Date: 2026-09-19
-Status: approved, pending implementation plan
+Status: approved, revised after four independent reviews
 Phase: A (module `hedge`)
+
+Revision note. v1 was audited by four independent reviewers covering quantitative
+correctness, software architecture, and internal consistency. v2 incorporates their
+findings. Where a review was rejected, section 14 records why.
 
 ## 1. Purpose
 
@@ -11,25 +15,21 @@ answers every day: what is my P&L if I sell an option and delta hedge it, and ho
 does that P&L change with hedging frequency, transaction costs, and the process the
 underlying actually follows?
 
-The deliverable is not a library. It is a set of five reproducible findings, each
-backed by a test that fails if the engine is wrong, and each rendered as a chart in
-the terminal.
+The deliverable is not a library. It is five reproducible findings, each backed by a
+test that fails if the engine is wrong, and each rendered as a chart in the terminal.
 
 ## 2. Context and constraints
 
 Author profile: quantitative finance major, coursework in stochastic calculus,
 pricing and market risk, numerical methods, numerical optimisation. Paid experience
-as a quantitative research intern at a crypto options market maker (Deribit implied
-volatility, digital-option fair value, live pricer, order-book data). C++ claimed as
-a skill with no public evidence behind it.
+as a quantitative research intern at a crypto options market maker. C++ claimed as a
+skill with no public evidence behind it.
 
 Constraint that shapes scope: internship applications are open now. A partial system
-that is demonstrable in three weeks is worth more than a complete system finished in
-three months. Milestones are therefore ordered so that each one ends at a state
-worth showing.
+demonstrable in three weeks beats a complete system finished in three months.
+Milestones are ordered so each ends at a state worth showing.
 
-Phase A covers the `hedge` module only. Phase B (`surface`, SVI/SSVI calibration
-with no-arbitrage constraints) and Phase C (`mm`, quoting with inventory risk) get
+Phase A covers the `hedge` module only. Phase B (`surface`) and Phase C (`mm`) get
 their own spec cycles and reuse this phase's protocol, rendering and C++ build.
 
 ## 3. Non-goals
@@ -37,377 +37,601 @@ their own spec cycles and reuse this phase's protocol, rendering and C++ build.
 American options, exotics, real market data, multi-asset books, portfolio-level
 hedging, live trading, broker connectivity, a web interface, a plugin system.
 
-Real market data enters in Phase B, where it is the point. In Phase A it would
-remove the one thing that makes the engine provable: a closed-form answer to compare
-against.
+## 4. Notation
 
-## 4. The experiment, formally
+| Symbol | Meaning |
+|--------|---------|
+| `S_t`, `K`, `T` | underlying, strike, maturity |
+| `r`, `q` | risk-free rate, continuous dividend yield |
+| `s_imp` | implied volatility at which the option is sold and subsequently marked |
+| `s_hedge` | volatility at which the hedge delta is sized |
+| `s_real` | volatility of the true process (for Heston, the initial `sqrt(v_0)`) |
+| `s` | a generic volatility where the distinction does not matter |
+| `N_mon` | monitoring grid steps: where the process is simulated and schedules evaluated |
+| `N_reh` | realized number of rehedges on a path, an output not an input |
+| `dt` | `T / N_mon` |
+| `k` | proportional transaction cost rate (quoted in bps) |
+| `h` | delta band half-width |
+| `Delta, Gamma, Theta, Vega` | **position** greeks (short one call gives `Delta < 0`, `Gamma < 0`) |
+| `v, kap_h, th_h, xi, rho` | Heston variance, mean-reversion speed, long-run variance, vol-of-vol, correlation |
+| `lam` | Merton jump intensity |
+| `mu_J, s_J` | mean and standard deviation of log jump size |
+| `kap` | Merton compensator, `exp(mu_J + 0.5*s_J^2) - 1` |
+| `gam_ra` | Whalley-Wilmott risk aversion (units of inverse currency) |
+| `Le` | Leland number |
 
-At `t_0` the desk sells one European call struck at `K` expiring at `T`, and
-receives the Black-Scholes premium computed at implied volatility `s_imp`. It hedges
-by holding `Delta` units of the underlying, recomputed at each rehedge time using
-hedging volatility `s_hedge`. The underlying evolves under a true process whose
-parameters are set independently of `s_imp`.
+All greeks in this document are position greeks. Every formula is written in that
+convention and the implementation carries it, so no sign flip occurs downstream.
 
-Cash account recursion, with `k` the proportional transaction cost rate:
+## 5. The experiment, formally
+
+At `t_0` the desk sells one European call struck `K` expiring `T` and receives the
+Black-Scholes premium at `s_imp`. It holds `Delta` units of the underlying,
+resized on a schedule using `s_hedge`. The underlying evolves under a true process
+whose parameters are set independently of `s_imp`.
 
 ```
-B_0    = BS(S_0, s_imp) - Delta_0 * S_0 - k * |Delta_0| * S_0
-B_i    = B_{i-1} * exp(r * dt) - (Delta_i - Delta_{i-1}) * S_i - k * |Delta_i - Delta_{i-1}| * S_i
-PnL    = B_{N-1} * exp(r * dt) + Delta_{N-1} * S_T - payoff(S_T) - k * |Delta_{N-1}| * S_T
+B_0 = BS(S_0, s_imp) - Delta_0 * S_0 - k * |Delta_0| * S_0
+B_i = B_{i-1} * exp(r * dt)
+      + q * Delta_{i-1} * S_{i-1} * dt            dividends on the held shares
+      - (Delta_i - Delta_{i-1}) * S_i
+      - k * |Delta_i - Delta_{i-1}| * S_i
+PnL = B_{N-1} * exp(r * dt) + q * Delta_{N-1} * S_{N-1} * dt
+      + Delta_{N-1} * S_T - payoff(S_T) - k * |Delta_{N-1}| * S_T
 ```
 
-Liquidation of the final share position is charged at the same cost rate. The three
-volatilities `s_imp`, `s_hedge` and the realized process volatility are separate
-inputs, because the difference between them is the entire subject of findings F2 and
-F3.
+The dividend leg is explicit. v1 omitted it from the recursion while attributing it
+in the P&L explain, which would have produced a systematic residual for any `q != 0`.
+
+**Two distinct deltas.** `Delta_i` above is the traded hedge, sized at `s_hedge` (or
+at the Leland-adjusted volatility under that schedule). The greeks used in the P&L
+explain of section 11 mark the short option and are evaluated at `s_imp`. These are
+different numbers whenever `s_hedge != s_imp`, which is the entire subject of F2.
+The implementation names them `delta_hedge` and `delta_mark` and never reuses one
+symbol for both.
 
 ### One-step hedging error
 
-All greeks in this document are **position** greeks: selling one call gives
-`Delta < 0` and `Gamma < 0`. Every formula below is written in that convention, and
-the implementation carries it, so no sign flip is applied anywhere downstream.
-
-Holding `Gamma` fixed over a step and writing `dS/S = s * sqrt(dt) * z` with
-`z ~ N(0, 1)`, the P&L contributed by one rehedge interval is
+Freezing `Gamma` over a step and writing `dS/S = s * sqrt(dt) * z` with `z ~ N(0,1)`:
 
 ```
 dPnL = 0.5 * Gamma * S^2 * s^2 * dt * (z^2 - 1)
 ```
 
-Since `Var(z^2 - 1) = 2` and steps are independent, summing `N = T / dt` steps gives
-a total variance proportional to `1 / N`, so `sd(PnL)` scales as `N^(-1/2)`. This is
-the Boyle and Emanuel (1980) result and it is the engine's primary correctness test:
-the fitted slope of `log sd(PnL)` against `log N` must be -0.5.
+`Var(z^2 - 1) = 2` since `E[z^4] = 3`. Per-step terms are not literally independent,
+because `Gamma` is a function of the realized path. They are asymptotically
+uncorrelated under the per-step freezing approximation, and the quadratic-variation
+argument gives total variance proportional to `1/N_reh` as `dt -> 0`. Hence
+`sd(PnL) ~ N_reh^(-1/2)`, the Boyle and Emanuel (1980) result, and the engine's
+primary correctness test.
 
-## 5. Findings the system must produce
+## 6. Findings
 
 | ID | Setup | Expected result |
 |----|-------|-----------------|
-| F1 | GBM, `s_hedge = s_real = s_imp`, no costs | `E[PnL]` indistinguishable from zero; `sd(PnL)` slope against `N` in log-log is -0.5 |
-| F2 | GBM, `s_imp != s_real` | Hedging at `s_real`: terminal P&L converges to the deterministic `BS(s_imp) - BS(s_real)`, known at inception, while the mark-to-market path is random. Hedging at `s_imp`: P&L is path dependent, always of the sign of `s_real - s_imp`, with mean equal to that same quantity. Ahmad and Wilmott (2005) |
-| F3 | Any model | Realized P&L equals the sum of attributed gamma, theta, vega and residual terms to floating-point tolerance. Residual is small under GBM and large under jumps |
-| F4 | Merton jump diffusion | `sd(PnL)` stops decreasing in `N` and reaches a floor. Left tail is fat. Delta hedging cannot remove gap risk |
-| F5 | GBM with transaction costs | Total cost against rehedge frequency is U-shaped. The located optimum is compared against Leland (1985) adjusted volatility and a Whalley and Wilmott (1997) band |
+| F1 | GBM, `s_hedge = s_real = s_imp`, no costs | `E[PnL]` indistinguishable from zero; log-log slope of `sd(PnL)` against `N_reh` is -0.5 |
+| F2 | GBM, `s_imp != s_real` | Hedging at `s_real`: terminal P&L converges to the deterministic `BS(s_imp) - BS(s_real)`, known at inception, with a random mark-to-market path. Hedging at `s_imp`: P&L is path dependent, always of the sign of `s_imp - s_real`, with mean equal to `BS(s_imp) - BS(s_real)` |
+| F3 | Any model | Realized P&L decomposes into delta, gamma, theta, vega, carry and cost terms. The residual is third order under GBM and large under jumps. The size of the residual measures the risk delta hedging cannot see |
+| F4 | Merton jumps | `sd(PnL)` stops decreasing in `N_reh` and reaches a floor. Fat left tail |
+| F5 | GBM with costs | Total cost against rehedge frequency is U-shaped. The optimum is compared against Leland and a Whalley-Wilmott band |
 
-F4 is the result that matters for a crypto derivatives book. F5 is the result a
-market maker pays for.
+**F2 sign.** The short position profits when realized volatility comes in below
+implied, so the pathwise sign follows `s_imp - s_real`, matching the sign of the mean
+`BS(s_imp) - BS(s_real)`. v1 stated the opposite sign in the same sentence as the
+mean, which was self-contradictory.
 
-Two conditions on F2 that the implementation must respect. The equality of the two
-means holds only when the simulated drift equals `r - q`, which is the case under
-section 8; a configuration with a different drift breaks it, so the F2 experiment
-pins the drift and the test asserts it. And the dispersion of the hedge-at-realized
-case is not zero at finite `N`, it is the discretisation error of F1 and vanishes as
-`N^(-1/2)`.
+**F2 drift condition.** The equality of the two means holds only when the simulated
+drift equals `r - q`. The F2 configuration pins the drift and its test asserts it.
 
-## 6. Architecture
+**F2 dispersion.** The hedge-at-realized case is not dispersion-free at finite
+`N_reh`. Its dispersion is exactly F1's discretisation error and vanishes as
+`N_reh^(-1/2)`.
+
+**F4 mechanism.** Between jumps the diffusive error hedges away as `N_reh^(-1/2)`.
+Each Poisson jump delivers an unhedgeable convexity P&L that no rehedge frequency can
+pre-empt, with variance set by `lam`, the jump-size law and `T`, all independent of
+`N_reh`. Total variance therefore converges to that floor rather than to zero.
+
+## 7. Architecture
 
 ```
 vol-lab/
   src/vollab/
-    paths/      base.py gbm.py heston.py merton.py
-    pricing/    black_scholes.py merton.py heston_cf.py greeks.py
-    hedge/      simulator.py schedule.py attribution.py costs.py
+    rng/        philox.py scheme.py        # keying scheme, RNG_SCHEME_VERSION
+    pricing/    black_scholes.py greeks.py merton.py heston_cf.py
     metrics/    stats.py bootstrap.py
+    paths/      base.py gbm.py heston.py merton.py
+    hedge/      simulator.py schedule.py attribution.py costs.py registry.py
     protocol/   prereg.py ledger.py hashing.py
     render/     charts.py report.py
     tui/        app.py
     cli.py
-  cpp/
-    include/vollab/  philox.hpp paths.hpp hedge.hpp
-    src/             paths.cpp hedge.cpp
-    bindings.cpp
-    CMakeLists.txt
+  cpp/          include/vollab/{philox,paths,hedge}.hpp src/ bindings.cpp CMakeLists.txt
   configs/      *.toml
-  tests/
-  REPORT.md
+  tests/  REPORT.md  docs/superpowers/specs/
 ```
 
-Dependency direction is one way:
+Dependency graph, corrected from v1:
 
 ```
-paths, pricing  ->  hedge  ->  metrics  ->  protocol  ->  render, tui, cli
+rng, pricing, metrics          leaves
+paths      -> rng
+hedge      -> paths, pricing, rng
+render.charts                  leaf (plain arrays only)
+protocol                       leaf: hashes canonical TOML bytes, stores JSON,
+                               imports nothing from vollab
+cli, tui, render.report        -> everything
 ```
 
-The simulator never imports the ledger. It is a pure function from a configuration
-to an array of P&L outcomes, which is what makes it testable without any of the
-surrounding machinery.
+v1 drew `hedge -> metrics -> protocol`, which was wrong twice. `metrics` operates on
+plain arrays and imports nothing from `hedge`, so it is a leaf. And `protocol` would
+have had to import `hedge` to turn TOML into a `HedgeConfig`, contradicting the
+section 22 reuse seam. TOML resolution therefore lives in `hedge/registry.py`, and
+`protocol/hashing.py` hashes canonicalised TOML bytes without knowing what they mean.
 
-Stack: uv, Python 3.14, numpy, scipy, nanobind with CMake, plotext, textual, pytest,
-hypothesis. Versions are pinned when added, not fixed by this document.
+Stack: uv, Python 3.14, numpy, scipy, nanobind, **scikit-build-core** (the PEP 517
+backend uv needs to build a CMake project; absent from v1), plotext, textual, pytest,
+hypothesis. Editable builds require `tool.scikit-build.build-dir` and
+`editable.rebuild = true`, or every C++ edit needs a manual reinstall.
 
-## 7. Interfaces
+## 8. Interfaces
 
 ```python
 @dataclass(frozen=True)
 class Contract:
     kind: Literal["call", "put"]
     S0: float; K: float; T: float; r: float; q: float
-    s_imp: float
+
+@dataclass(frozen=True)
+class VolSpec:
+    s_imp: float          # sale and mark
+    s_hedge: float        # hedge sizing
+    s_real: float         # true process; for Heston, sqrt(v_0)
 
 @dataclass(frozen=True)
 class HedgeConfig:
     contract: Contract
-    model: PathModel            # GBM | Heston | Merton
-    schedule: Schedule          # FixedTime | DeltaBand | Leland | WhalleyWilmott
-    s_hedge: float
-    cost_bps: float
+    vols: VolSpec
+    model: PathModel          # GBM | Heston | Merton; carries optional mu override
+    schedule: Schedule        # FixedTime | DeltaBand | Leland | WhalleyWilmott
+    n_mon: int                # monitoring grid, the single source of truth
+    cost_bps: float           # the single source of truth for k
     n_paths: int
-    n_steps: int
     seed: int
+    chunk_paths: int = 50_000
+    trace_paths: tuple[int, ...] = ()
+
+@dataclass(frozen=True)
+class Attribution:            # named (n_paths,) arrays, not an (n_paths, m) block
+    delta: np.ndarray; gamma: np.ndarray; theta: np.ndarray
+    vega:  np.ndarray; carry: np.ndarray; cost:  np.ndarray
+    residual_sum: np.ndarray; residual_abs_sum: np.ndarray; residual_max_abs: np.ndarray
 
 @dataclass(frozen=True)
 class HedgeResult:
-    pnl: np.ndarray             # (n_paths,)
-    attribution: Attribution    # (n_paths, 6): delta, gamma, theta, vega, carry, residual
-    n_rehedges: np.ndarray      # (n_paths,)
-    turnover: np.ndarray        # (n_paths,)
+    pnl: np.ndarray               # (n_paths,) float64
+    attribution: Attribution
+    n_rehedges: np.ndarray        # (n_paths,) int64
+    turnover: np.ndarray          # (n_paths,) float64
+    rehedge_mask_hash: np.ndarray # (n_paths,) uint64, digest of the decision sequence
+    trace: PathTrace | None       # per-step detail for trace_paths only
+    engine_used: Literal["numpy", "cpp"]
+    rng_scheme_version: int
 
 def simulate(cfg: HedgeConfig, engine: Literal["numpy", "cpp"]) -> HedgeResult: ...
 ```
 
-`engine` is a parameter rather than a global, so the parity test is a direct call to
-the same function twice.
+Five interface decisions, each fixing a v1 defect:
 
-## 8. Path models
+- **`simulate(cfg, "cpp")` raises when the extension is missing.** It never silently
+  falls back. v1's fallback would have made the parity test compare NumPy against
+  NumPy and pass. The graceful fallback lives in the CLI layer only, and
+  `engine_used` records what actually ran.
+- **`n_mon` and `cost_bps` are the only sources of truth.** Schedules read `k` rather
+  than carrying their own, and `FixedTime(every)` rehedges every `every`-th
+  monitoring step rather than declaring its own step count.
+- **`VolSpec` gives `s_real` a home.** v1 buried realized volatility inside the model
+  object, leaving F2 undefined for Heston and Merton.
+- **`PathModel` carries an optional `mu` override**, so F2's drift condition is
+  configurable and therefore assertable. v1 hardcoded `r - q` and then promised a
+  test that pinned the drift, which was unwritable.
+- **Attribution is a dataclass of named arrays** carrying three residual statistics.
+  A signed sum alone cancels two-signed jump residuals across steps, destroying
+  exactly the F4 measurement it exists to support.
 
-Each model exposes `generate(n_paths, n_steps, T, seed) -> ndarray (n_paths, n_steps+1)`
-and a closed-form or semi-analytic price used as its ground truth.
+## 9. Memory and chunking
 
-**GBM.** `dS = (r - q) S dt + s S dW`, simulated exactly in log space. Ground truth:
-Black-Scholes.
+Simulating 1e6 paths on a 4096-step grid is 33 GB as one float64 array, and section
+11 requires always simulating on the finest grid, so this is the normal case rather
+than the extreme one. `simulate` therefore loops over path chunks of `chunk_paths`,
+accumulating per-path summary arrays and retaining full per-step detail only for
+`trace_paths`. Counter-based keying makes an individual path independently
+addressable, which is what makes a cheap trace subset possible.
+
+This is decided before M2 because retrofitting chunking through the cash-accounting
+assertions is a rewrite.
+
+## 10. Path models
+
+Each model exposes a chunked generator and an independent closed-form or
+semi-analytic price used as ground truth. Having an independent price for every model
+means a broken path generator is caught by a pricing test before it reaches the
+hedging logic.
+
+**GBM.** `dS = (r - q) S dt + s S dW`, simulated exactly in log space with the Ito
+correction `-0.5*s^2*dt`. Ground truth: Black-Scholes.
 
 **Heston.** `dS = (r - q) S dt + sqrt(v) S dW1`,
-`dv = kappa (theta - v) dt + xi sqrt(v) dW2`, `corr(dW1, dW2) = rho`. Discretised
-with the Andersen quadratic-exponential scheme; full-truncation Euler is kept as a
-cross-check at small `dt`. Ground truth: the Heston (1993) characteristic-function
-price by numerical integration.
+`dv = kap_h (th_h - v) dt + xi sqrt(v) dW2`, `corr(dW1, dW2) = rho`. Andersen
+quadratic-exponential discretisation, with full-truncation Euler as a small-`dt`
+cross-check. Ground truth: the Heston (1993) characteristic-function price.
 
-**Merton jump diffusion.** `dS/S = (r - q - lam * kap) dt + s dW + (J - 1) dN`, with
-`ln J ~ N(mu_J, s_J^2)`, `kap = exp(mu_J + 0.5 * s_J^2) - 1`, and `N` a Poisson
-process of intensity `lam`. Ground truth: the Merton series price, a Poisson-weighted
-sum of Black-Scholes prices, truncated when the weight tail falls below 1e-12.
+The Feller condition is `2 * kap_h * th_h > xi^2`. Equity-like calibrations routinely
+violate it, which is precisely where QE and Euler agreement is most `dt`-sensitive
+and where the characteristic-function integration needs care near the pole. The test
+grid includes one Feller-satisfying and one Feller-violating parameter set, and the
+spec records which is which.
 
-Every model having an independent analytic price is deliberate. It means a broken
-path generator is caught by a pricing test before it ever reaches the hedging logic.
+**Merton.** `dS/S = (r - q - lam*kap) dt + s dW + (J - 1) dN`, `ln J ~ N(mu_J, s_J^2)`,
+`kap = exp(mu_J + 0.5*s_J^2) - 1`.
 
-## 9. Pricing and greeks
-
-Black-Scholes price, delta, gamma, vega, theta and rho in closed form, for calls and
-puts, with continuous dividend yield `q`. Implemented once and reused by the hedger,
-the attribution module and the schedules.
-
-Acceptance: put-call parity holds to 1e-12; every analytic greek matches a central
-finite difference of the price to 1e-6 relative; the implied-volatility inverse
-recovers the input volatility to 1e-10 over a wide strike and maturity grid.
-
-## 10. Hedge simulator
-
-Vectorised over paths. At each step it computes delta for all live paths, applies the
-schedule to decide which paths rehedge, updates the cash account, accrues financing
-at `r`, and charges costs on traded notional. Paths that have not triggered a rehedge
-carry their previous position forward.
-
-Two properties hold by construction and are asserted: cash accounting is exact (the
-cash account plus the share position plus the short option equals the running P&L at
-every step), and a path that never rehedges reproduces a naked short position.
-
-## 11. Attribution
-
-Per step, per path:
+Ground truth is the Merton series, specified completely because a naive
+implementation reusing one rate and one volatility per term is wrong:
 
 ```
-delta_pnl = Delta * dS
-gamma_pnl = 0.5 * Gamma * dS^2
+C = sum_n  w_n * BS(S, K, T, r_n, q, s_n)
+w_n = exp(-lam' T) (lam' T)^n / n!      with lam' = lam * (1 + kap)
+s_n = sqrt(s^2 + n * s_J^2 / T)
+r_n = r - lam*kap + n * ln(1 + kap) / T
+```
+
+Truncated when the weight tail falls below 1e-12. This formula was verified
+numerically against an independent Monte Carlo of the risk-neutral jump diffusion
+before being written here: series 10.040100 against MC 10.044299 +/- 0.009470, a
+separation of 0.44 standard errors.
+
+**Jump times are generated per path, not per step.** Each path draws its jump times
+and sizes from a dedicated counter stream keyed by path alone. The jump set is
+therefore identical across every `N_mon` in a sweep, which is what makes F4's
+frequency sweep paired rather than unpaired.
+
+## 11. Random numbers and engine parity
+
+This is the highest-risk section of the project. Three decisions, each verified
+against numpy 2.5.3 by running code rather than from memory.
+
+### Keying scheme
+
+```
+key     = (seed_u64, path_index_u64)        # Philox key is exactly 128 bits
+counter = (block_index_u64, 0, 0, 0)        # block_index = draw_index // 4
+draw_index = fine_step_index * DRAWS_PER_STEP + factor_index
+```
+
+Verified constraints:
+
+- `numpy.random.Philox(key=...)` accepts **exactly two** uint64 words.
+  `key=[1,2,3]` raises `ValueError: key must have 2 elements when using array form`.
+  v1's proposed `(seed, path_index, step_index)` key is therefore impossible; the
+  step index must live in the counter.
+- **`numpy.random.Philox(key=k, counter=c)` emits the Philox4x64-10 block for counter
+  `c+1`, not `c`.** A C++ Random123 call with `ctr=c` is off by one block and
+  produces a stream that is correct in distribution and wrong in parity.
+- **`advance(n)` moves `n` blocks of four outputs and discards the buffer**, despite
+  its docstring saying draws. Verified: `advance(1)` leaves counter `[1,0,0,0]` with
+  `buffer_pos=4`, while one draw leaves the same counter with `buffer_pos=1`.
+  Implementing step offsets with `advance` silently strides 4x and can overlap
+  streams between paths. The scheme never uses it.
+- `Generator.random()` equals `(u64 >> 11) * 2**-53` exactly, so the uniform stream is
+  bit-reproducible in C++ from one line.
+
+Per-draw keying was measured at 0.139 Mdraw/s against 20.8 for per-path keying and
+49.2 for a single vectorised stream. Per-draw keying is 355x too slow and is
+rejected; per-path keying costs 2.4x and is affordable.
+
+`rng/scheme.py` defines `RNG_SCHEME_VERSION`, which both languages read and which is
+written to every ledger row.
+
+### Fixed per-step draw budget
+
+Heston QE branches on `psi <= psi_c`, consuming a normal on one branch and a uniform
+on the other. Vectorised NumPy draws both and selects; scalar C++ draws one. The
+streams then desynchronise structurally, not approximately. Merton has the same
+problem through a random jump count.
+
+`DRAWS_PER_STEP` is therefore fixed per model and asserted in both engines: GBM 1,
+Heston 3 (variance normal, variance uniform, price normal, all always drawn),
+Merton 1 (diffusion only, since jumps are keyed per path). Both engines always
+consume the full budget and discard what the branch did not use.
+
+### Brownian nesting
+
+F1 and F5 sweep `N_reh` and section 16 requires paired comparison. Keying by step
+index alone would give the `N=16` and `N=4096` runs completely different paths,
+making the `sd` against `N` curve an unpaired comparison with far larger Monte Carlo
+error than assumed.
+
+Paths are therefore always generated on the finest grid `N_mon`, and coarser rehedge
+frequencies are obtained by trading every `2^j`-th monitoring step. All frequencies
+in a sweep are then Brownian-nested on identical paths.
+
+This works exactly for GBM, and for Merton because jump times are grid-independent by
+section 10. It does not work for Heston, whose variance path is grid-dependent. No
+`N`-sweep finding depends on Heston, and section 19's test for Heston states that its
+comparisons are unpaired.
+
+### Tiered parity acceptance
+
+v1 demanded bitwise identity between engines. That is unattainable, for a reason that
+has nothing to do with care in implementation: `DeltaBand` branches on a float
+comparison, so a 1-ULP difference in delta flips a boolean on some path at some step
+and the engines then differ by **a whole trade**, not by a rounding error. Heston QE
+and Merton branch similarly, and 27% of inverse-CDF draws land on a `log` branch that
+is not bit-portable across libms. A bitwise gate would either never go green or go
+green on GBM and break at M6.
+
+Four separate assertions replace it:
+
+| Level | Scope | Criterion |
+|-------|-------|-----------|
+| Exact | raw Philox uint64 stream | bitwise identical (pure integer arithmetic) |
+| Exact | uniform doubles | bitwise identical via `(u64 >> 11) * 2**-53` |
+| Exact | decision sequence | `n_rehedges` and `rehedge_mask_hash` identical per path |
+| Tolerance | normals, paths, P&L | 2 ULP on normals, 1e-13 relative on log-paths, `n_mon * eps * scale` on P&L |
+
+The decision-sequence assertion is the one that actually catches an engine bug: it
+fails loudly on a real defect and survives ULP noise. A branch-free
+GBM + FixedTime + zero-cost configuration additionally carries a stricter tolerance.
+
+## 12. Hedge simulator
+
+Vectorised over paths, looping over monitoring steps, chunked per section 9. At each
+step it computes `delta_hedge` for all paths, applies the schedule as a boolean mask,
+updates cash, accrues financing and dividends, and charges costs on traded notional.
+Paths not triggering carry their position forward.
+
+**Monitoring grid against rehedge grid.** The schedule condition is evaluated at
+every monitoring step; trading happens on the subset where it triggers. v1 conflated
+the two, which would have let two engineers implement `DeltaBand` on different grids
+and obtain different F5 curves. Band schedules reduce trading cost, not compute:
+delta is still computed for every path at every monitoring step.
+
+Asserted by construction: cash plus share position minus option mark equals running
+P&L at every step of every path, and a path that never rehedges reproduces a naked
+short.
+
+## 13. Attribution
+
+Per monitoring step, per path, then summed into the section 8 arrays:
+
+```
+delta_pnl = delta_mark * dS
+gamma_pnl = 0.5 * Gamma  * dS^2
 theta_pnl = Theta * dt
-vega_pnl  = Vega * d(s_imp)                    # zero when implied vol is held fixed
-carry_pnl = r * cash * dt - q * Delta * S * dt # financing and dividends
+vega_pnl  = Vega * d(s_imp)                       # identically zero in Phase A
+carry_pnl = cash * (exp(r*dt) - 1) + q * delta_hedge * S * dt
+cost_pnl  = -k * |d(delta_hedge)| * S
 residual  = realized_step_pnl - sum(the above)
 ```
 
-This is the P&L explain a desk actually produces: a second-order Taylor expansion of
-the position value plus financing. For a delta-hedged book `delta_pnl` nets against
-the hedge, leaving the gamma against theta trade-off that the charts display.
+Four corrections to v1:
 
-The decomposition must close: the six components sum to the realized step P&L to
-floating-point tolerance. That is finding F3, and it is also the test that catches a
-sign error in the hedger, because a sign error surfaces as a residual the size of the
-gamma term rather than as a plausible-looking number.
+- **Costs have their own line.** v1 left `k*|dDelta|*S` unattributed, so under F5,
+  the cost sweep, the residual would have been dominated by transaction costs and
+  F3's interpretation of the residual would have been false.
+- **Carry uses `exp(r*dt) - 1`, not `r*dt`.** v1's linearisation disagreed with
+  section 5's `exp(r*dt)` accrual by `O((r dt)^2)` with the same sign every step,
+  which accumulates into a systematic residual.
+- **Mark greeks use `s_imp`; the traded hedge uses `s_hedge`.** `delta_mark` and
+  `delta_hedge` are different numbers whenever the two volatilities differ, which is
+  the F2 configuration. v1 used one symbol for both.
+- **`vega_pnl` is an all-zeros column in Phase A**, since implied volatility is held
+  fixed. It is kept as the Phase B seam and stated to be zero so a reader does not
+  hunt for it in the stacked-bar chart.
 
-Why the residual is a finding rather than a nuisance: the expansion is exact to
-second order in `dS`, so under GBM the residual is third order and negligible. A jump
-is not small, so under Merton the residual is large. The size of the residual is
-therefore a direct measurement of how much of the risk delta hedging cannot see.
+The interpretation that makes the residual a finding: the expansion is exact to
+second order in `dS`, so under GBM the residual is third order and negligible, while
+a jump is not small and produces a large residual. Its magnitude directly measures
+how much risk delta hedging cannot see.
 
-## 12. Costs and schedules
+## 14. Costs and schedules
 
-Cost model: proportional, `k * |dDelta| * S`, with `k` given in basis points. A
-fixed per-trade fee is available and defaults to zero.
+Cost model: proportional, `k * |d(delta_hedge)| * S`, with `k` in basis points, plus
+an optional per-trade fee defaulting to zero.
 
-Schedules:
+- **FixedTime(every)**: trade every `every`-th monitoring step.
+- **DeltaBand(h)**: trade when `|delta_target - delta_held| > h`.
+- **Leland(every, k)**: fixed time with delta computed at `s_L^2 = s^2 * (1 +/- Le)`,
+  `Le = sqrt(2/pi) * k / (s * sqrt(dt))`. **Plus for a written option, minus for a
+  held one.** v1 hardcoded the plus branch with no statement, which is wrong for a
+  long-option Leland schedule.
+- **WhalleyWilmott(k, gam_ra)**: half-width proportional to
+  `(k * S * Gamma^2 / gam_ra)^(1/3)`, per the 1997 paper.
 
-- **FixedTime(n)**: rehedge at `n` equally spaced times.
-- **DeltaBand(h)**: rehedge when `|Delta_target - Delta_held| > h`.
-- **Leland(n, k)**: fixed time, but delta computed at the Leland adjusted volatility
-  `s_L^2 = s^2 * (1 + Le)` with `Le = sqrt(2 / pi) * k / (s * sqrt(dt))`.
-- **WhalleyWilmott(k, lam)**: asymptotic band whose half-width is proportional to
-  `(k * S * Gamma^2 / lam)^(1/3)`, implemented following the 1997 paper.
+Acceptance for WhalleyWilmott is the scaling, not a transcribed constant: the fitted
+band must vary as `k^(1/3)` and `Gamma^(2/3)`.
 
-For WhalleyWilmott the acceptance criterion is the scaling, not a hard-coded
-constant: the fitted band width must vary as `k^(1/3)` and `Gamma^(2/3)` across a
-parameter sweep. This tests the result that matters and does not depend on
-transcribing a constant correctly.
+**Rejected review finding.** One reviewer ranked as its top correction that the band
+should contain `S^2 * Gamma^2`. This is dimensionally impossible. The band is a delta
+band and must be dimensionless; `Delta` is dimensionless so `Gamma ~ 1/currency`, `k`
+is dimensionless, and exponential-utility risk aversion `gam_ra ~ 1/currency`. Then
+`k * S * Gamma^2 / gam_ra` is dimensionless while `k * S^2 * Gamma^2 / gam_ra` has
+units of currency, whose cube root cannot be a delta band. The formula stands. The
+likely confusion is between `S * Gamma^2` and cash gamma `S^2 * Gamma`.
 
-## 13. C++ core and RNG parity
+## 15. Protocol layer
 
-The NumPy engine is the readable reference. The C++ engine is the fast path. They
-must agree path for path, not merely in distribution, or the reference proves
-nothing.
+**Pre-registration.** An experiment is a TOML file declaring model, parameters, the
+frequency grid, costs, seeds, and a mandatory prose hypothesis. The file carries a
+`config_hash` field. `vl run` canonicalises the resolved configuration, recomputes
+the hash, and refuses to run when the two differ.
 
-This requires a counter-based pseudo-random generator on both sides: `numpy.random.Philox`
-in Python and Philox4x64-10 in C++. Random draws are keyed by the tuple
-`(seed, path_index, step_index)` rather than drawn from a running stream. Two
-consequences, both wanted:
+v1 said the hash was computed from the file and compared against the file, which is
+circular and checks nothing. The stored-field form is the intended semantics: editing
+a parameter without re-registering invalidates the hash and blocks the run.
 
-1. The engines produce bitwise-identical normal draws, so parity is an exact
-   assertion rather than a statistical one.
-2. Any single path is independently addressable, so when the engines do disagree the
-   failure can be reproduced on one path instead of ten million.
-
-Normal variates are produced by the inverse-CDF method on both sides, using the same
-rational approximation, because Box-Muller and Ziggurat consume raw draws at
-different rates and would break parity even with an identical bit stream.
-
-Build: CMake plus nanobind, exposed through `uv` as an editable build. If the build
-is unavailable the Python engine remains fully functional and the CLI falls back with
-a warning, so a broken toolchain never blocks the rest of the project.
-
-## 14. Protocol layer
-
-**Pre-registration.** An experiment is a TOML file declaring the model, parameters,
-the `N` grid, costs, seeds, and the hypothesis in prose. `vl run` hashes the resolved
-configuration and refuses to execute a configuration that differs from the file on
-disk. The hypothesis field is mandatory and is copied into the run record, so the
-claim is fixed before the number exists.
+Canonicalisation is defined explicitly (sorted keys, normalised floats, no comments,
+UTF-8, LF) or the hash is unstable across TOML writers.
 
 **Ledger.** sqlite at `.vollab/ledger.db`:
 
 ```sql
 CREATE TABLE runs (
-  run_id      TEXT PRIMARY KEY,
-  ts          TEXT NOT NULL,
-  config_hash TEXT NOT NULL,
-  config_toml TEXT NOT NULL,
-  hypothesis  TEXT NOT NULL,
-  git_commit  TEXT NOT NULL,
-  git_dirty   INTEGER NOT NULL,
-  engine      TEXT NOT NULL,
-  metrics     TEXT NOT NULL,
-  artifacts   TEXT NOT NULL,
-  runtime_s   REAL NOT NULL
+  run_id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, ts TEXT NOT NULL,
+  config_hash TEXT NOT NULL, config_toml TEXT NOT NULL, hypothesis TEXT NOT NULL,
+  paths_fingerprint TEXT NOT NULL,   -- model, params, seed, n_paths, fine grid
+  git_commit TEXT NOT NULL, git_dirty INTEGER NOT NULL, git_diff_sha TEXT,
+  vollab_version TEXT NOT NULL, rng_scheme_version INTEGER NOT NULL,
+  engine TEXT NOT NULL, engine_build_id TEXT,   -- commit, compiler, -O, -ffp-contract
+  numpy_version TEXT NOT NULL, scipy_version TEXT NOT NULL,
+  python_version TEXT NOT NULL, platform TEXT NOT NULL,
+  status TEXT NOT NULL, n_paths_completed INTEGER NOT NULL,
+  metrics TEXT NOT NULL, artifacts TEXT NOT NULL, artifact_sha256 TEXT NOT NULL,
+  runtime_s REAL NOT NULL
 );
+CREATE INDEX runs_config_hash ON runs(config_hash);
+CREATE INDEX runs_ts ON runs(ts);
 ```
 
-Arrays go to parquet under `.vollab/runs/<run_id>/`. `git_dirty` is recorded rather
-than enforced: a run from a dirty tree is legal but permanently marked as such.
+`config_toml` alongside `config_hash` is not redundant: the hash is over the
+canonical resolved form and survives cosmetic edits, the text is the human record.
 
-Deliberately not carried over from the earlier backtester design: the out-of-sample
-lockbox and the deflated Sharpe ratio. Both exist to police repeated testing against
-one fixed sample. Here the truth is analytic and data is generated on demand, so they
-would be ceremony rather than protection. They return in Phase B, where the data is a
-finite set of real Deribit chains.
+`paths_fingerprint` exists so `vl compare` can **refuse** a paired bootstrap between
+two runs that were not run on the same paths, which would otherwise be silently
+wrong. Floating-point flags are recorded because section 11 makes them load-bearing.
+`status` and `n_paths_completed` exist so a crashed run leaves an honest row rather
+than none.
 
-## 15. Statistics
+## 16. Statistics
 
-Comparisons between two schedules are paired: both are run on identical paths from
-identical seeds, and the difference is taken per path. Reported as a mean difference
-with a bootstrap confidence interval over paths, not as two separate point estimates.
-A comparison whose interval straddles zero is reported as straddling zero.
+Comparisons are paired: both arms run on identical paths from identical seeds, the
+difference is taken per path, and the result is a mean difference with a bootstrap
+confidence interval over paths. Pairing across perfectly correlated arms is sound
+because resampling is across paths, which are independent.
 
-Monte Carlo standard errors accompany every mean in every chart and table. An
-estimate without its standard error is treated as a defect.
+**`sd(PnL)` gets its own bootstrap standard error.** Section 16 of v1 promised
+standard errors on every mean, but the two headline tests, law recovery and the jump
+floor, both depend on `sd`, a nonlinear statistic whose sampling error is not
+`s/sqrt(n)`. Every reported `sd` carries a bootstrap interval.
 
-## 16. CLI
+An estimate without its standard error is a defect.
+
+## 17. Rendering and CLI
 
 ```
-vl price   --K 100 --T 0.25 --vol 0.6          Black-Scholes price and greeks
-vl paths   show --model merton --seed 7        inspect sample paths
-vl run     configs/discretisation.toml         pre-registered experiment
-vl compare <run_a> <run_b>                     paired bootstrap on the difference
-vl bench                                       NumPy against C++ speedup table
-vl view    <run_id>                            textual viewer
-vl ledger                                      list runs with config hashes
+vl price   --K 100 --T 0.25 --vol 0.6       Black-Scholes price and greeks
+vl paths   show --model merton --seed 7     inspect sample paths
+vl run     configs/discretisation.toml      pre-registered experiment
+vl compare <run_a> <run_b>                  paired bootstrap, refuses on fingerprint mismatch
+vl bench                                    NumPy against C++
+vl view    <run_id>                         textual viewer
+vl ledger                                   runs with config hashes
 ```
 
-`vl run` prints its report into scrollback as plotext charts and writes the run
-record. Commands are numbered in run order in `--help`.
+Charts: `sd(PnL)` against `N_reh` log-log with a -0.5 reference; P&L histograms by
+model; attribution stacked bars; the cost against frequency U curve; delta and
+underlying for a traced path.
 
-Charts: `sd(PnL)` against `N` in log-log with a -0.5 reference line; P&L histograms
-overlaid by model; attribution as stacked bars; the cost against frequency U curve;
-delta and underlying paths for a single sample path.
+**`vl bench` reports two speedups.** Section 11 mandates inverse-CDF on the NumPy
+side, and `ndtri(random())` measured 3.4x slower than `standard_normal()` (49.2
+against 165.8 Mdraw/s). Reporting only against the reference engine would compare C++
+to a deliberately handicapped NumPy. Both numbers are printed, labelled "against
+reference NumPy" and "against idiomatic NumPy".
 
-## 17. TUI
+`plotext` is a single-maintainer dependency gating every chart in M4. If it does not
+work on Python 3.14, the fallback is a small ANSI braille renderer, which section 21
+carries as a named risk.
 
-`vl view <run_id>` opens a Textual application that reads saved artifacts only. It
-never runs a simulation. Panels: the charts above, the configuration, and the
-hypothesis as recorded. A compare mode places two runs side by side.
+## 18. TUI
 
-Keeping the viewer read-only is what allows the engine to have no interactive code
-paths and therefore to be fully testable headless.
+`vl view <run_id>` opens a Textual application over saved artifacts only. It never
+runs a simulation, which is what keeps the engine free of interactive code paths and
+fully testable headless.
 
-## 18. Testing strategy
+## 19. Testing
 
 | Test | Asserts |
 |------|---------|
-| Analytic pricing | Put-call parity to 1e-12; greeks against central differences to 1e-6 relative; implied volatility inverse recovers input to 1e-10 |
-| Model ground truth | MC price converges to Black-Scholes (GBM), the Merton series (jumps), and the characteristic-function price (Heston), each within three Monte Carlo standard errors |
-| Engine parity | C++ and NumPy produce bitwise-identical paths and P&L for the same seed |
-| Law recovery | Fitted slope of `log sd(PnL)` against `log N` is -0.5 within tolerance, over `N` from 2^4 to 2^12 |
-| Zero mean | Perfect hedge with no costs has mean P&L not distinguishable from zero by a t-test |
-| Attribution closure | Components sum to realized P&L to 1e-10 relative |
-| Jump floor | Under Merton, `sd(PnL)` at `N = 2^12` is not below a fixed fraction of its value at `N = 2^8` |
-| Cash accounting | Cash plus shares minus option value equals running P&L at every step, every path |
-| Properties (hypothesis) | Costs are monotonically non-increasing in P&L; more frequent hedging does not increase variance in the zero-cost GBM case; payoffs are non-negative; band schedules never trade more than fixed-time at the same grid |
+| Analytic pricing | Put-call parity to 1e-12; greeks against central differences to 1e-6 relative; implied-vol inverse recovers input to 1e-10 |
+| Model ground truth | MC price converges to Black-Scholes, the Merton series, and the Heston characteristic-function price, each within 3 standard errors at a stated minimum `n_paths`, raised for deep-OTM and jump configurations where payoff skew slows CLT convergence |
+| RNG stream parity | C++ and NumPy raw uint64 and uniform doubles bitwise identical |
+| Decision parity | `n_rehedges` and `rehedge_mask_hash` identical per path, per model, asserted only for models that exist at that milestone |
+| Numeric parity | Normals within 2 ULP, log-paths 1e-13 relative, P&L within `n_mon * eps * scale` |
+| Law recovery | Fitted slope of `log sd(PnL)` against `log N_reh` is -0.5 within a tolerance derived from the bootstrap SE of each `sd`, over `N_reh` from 2^4 to 2^12 on Brownian-nested paths |
+| F2 lock-in | Hedging at `s_real` gives terminal P&L within tolerance of `BS(s_imp) - BS(s_real)`; hedging at `s_imp` has that same mean and a pathwise sign matching `s_imp - s_real`; the configured drift is asserted equal to `r - q` |
+| Zero mean | Perfect hedge, zero cost: mean P&L not distinguishable from zero by a t-test |
+| Attribution accuracy | Under GBM with `q=0, k=0`: `max|residual| / max|gamma_pnl| < tol`. A literal closure check runs only as a NaN guard |
+| Jump floor | Under Merton, `sd(PnL)` at `N=2^12` is at least a calibrated fraction of its value at `N=2^8`, with the fraction derived from the analytic jump-variance floor and a tolerance from the bootstrap SE of each `sd` |
+| F5 U-curve | The cost-against-frequency curve has an interior minimum, and its location moves with `k` in the direction Leland predicts |
+| Cash accounting | Cash plus shares minus option mark equals running P&L at every step, every path |
+| Properties (hypothesis) | P&L is non-increasing in `k`; band schedules trade no more often than `FixedTime(1)` on the same monitoring grid |
+| Fixed-seed ladder | On a fixed coarse `N` ladder, zero-cost GBM variance is non-increasing in frequency, within a stated multiple of the SE |
 | Golden run | Fixed seed and config reproduce a committed metrics snapshot |
 
-The law-recovery and attribution-closure tests are the two that make the engine
-trustworthy. If either regresses, no result in REPORT.md can be believed.
+Five test corrections carried from review:
 
-## 19. Milestones
+- **Attribution closure was vacuous.** Since `residual` is *defined* as the realized
+  P&L minus the other terms, "the components sum to realized P&L" is true by
+  construction for any hedger, including a broken one. The test that has power is a
+  bound on the residual relative to the gamma term.
+- **Engine parity must skip, not pass, when the extension is absent**
+  (`pytest.importorskip`), and CI fails if it skipped where the build was expected.
+  Combined with v1's silent fallback this was a green test proving nothing.
+- **"Costs are monotonically non-increasing in P&L"** was garbled. The testable
+  statement is that P&L is non-increasing in `k`.
+- **"Payoffs are non-negative"** is a tautology for vanillas and is dropped.
+- **"More frequent hedging does not increase variance"** is a statistical claim, and
+  as a hypothesis property it would find a Monte Carlo corner where noise inverts it.
+  It becomes a fixed-seed ladder with an explicit SE tolerance.
+
+## 20. Milestones
 
 | ID | Days | Deliverable | Done when |
 |----|------|-------------|-----------|
-| M1 | 1-3 | uv project, Black-Scholes price and greeks, CLI skeleton | Analytic pricing tests green, `vl price` prints a correct chain |
-| M2 | 4-7 | NumPy GBM paths, hedge simulator, cash accounting | Zero-mean, cash-accounting and -0.5 slope tests green. F1 exists |
-| M3 | 8-10 | Attribution, costs, the four schedules | Attribution closure green, F3 and F5 measurable as numbers; their charts land at M4 |
-| M4 | 11-13 | plotext charts, `vl run`, pre-registration, ledger | A pre-registered config produces a chart and a ledger row |
-| M5 | 14-17 | C++ core, nanobind, Philox parity, `vl bench` | Parity test green, speedup table in the README |
-| M6 | 18-20 | Heston and Merton paths and their ground-truth prices | Jump-floor test green. F4 exists |
-| M7 | 21-24 | REPORT.md with F1 to F5, README, Textual viewer | Every finding has a chart, a number with a standard error, and a command that regenerates it |
+| M1 | 1-3 | uv project, Black-Scholes price and greeks, CLI skeleton | Analytic pricing tests green, `vl price` correct |
+| M2 | 4-7 | `rng/` scheme, NumPy GBM on the nested grid, simulator, chunking, cash accounting | Zero-mean, cash-accounting, law-recovery green. F1 exists |
+| M3 | 8-11 | Attribution with cost and carry lines, the four schedules | Attribution-accuracy green. F3 and F5 measurable |
+| M4 | 12-14 | Charts, `vl run`, `vl compare`, pre-registration, ledger | A registered config yields a chart, a ledger row, and a refused mismatched compare. F2 test green |
+| M5 | 15-26 | C++ core, nanobind, scikit-build-core, tiered parity, `vl bench` | Stream, decision and numeric parity green on GBM; both speedups reported |
+| M6 | 27-30 | Heston and Merton with their ground-truth prices | Jump-floor green, parity extended to both models. F4 exists |
+| M7 | 31-34 | REPORT.md with F1 to F5, README, Textual viewer | Every finding has a chart, a number with a standard error, and a command that regenerates it |
 
-M2 is the first state worth showing. M5 is the state at which the C++ claim has
-evidence behind it. Each milestone leaves the repository in a demonstrable condition.
+**M5 was re-estimated from 4 days to 12.** It comprises a CMake project, nanobind,
+a uv editable build, Philox4x64-10 matching numpy's key, counter and buffer semantics
+including the `c+1` offset, a Cephes `ndtri` port, GBM paths, the hedge loop, parity
+debugging and `vl bench`. Four evenings is the figure for someone who has done the
+toolchain before, and section 2 records that this author has not.
 
-## 20. Risks
+**M5 degraded deliverable.** If it overruns, it reduces to a C++ GBM path generator
+only, benched against NumPy with parity asserted on the uniform bit stream. That
+still discharges the section 2 purpose at roughly 40% of the cost.
+
+**Early warning signs, in order.** First, end of M5 day 1 without
+`python -c "import vollab._core"` working from a clean `uv sync`: if the toolchain is
+not proven on day 1 with a trivial function, timebox the build separately. Second, a
+first parity run differing only in low bits, which looks nearly working and is not.
+Third, M3 running long, since the Whalley-Wilmott scaling fit is a day on its own.
+
+## 21. Risks
 
 | Risk | Mitigation |
 |------|------------|
-| C++ and NumPy diverge and the cause is untraceable | Counter-based RNG keyed by path and step, so any disagreement reproduces on one path |
-| nanobind or CMake build fails on the target machine | Python engine is complete on its own; the C++ path is opt-in and the CLI falls back with a warning |
-| Heston discretisation bias is mistaken for a hedging result | The characteristic-function price gates every Heston finding; no Heston chart ships until that test is green |
-| Scope creeps toward Phase B before Phase A ships | `surface` and `mm` are named non-goals in this document and require their own spec cycles |
-| Milestones slip past the application window | Milestone order is chosen so M2, M4, M5 and M7 are each independently presentable |
+| Engines diverge untraceably | Counter-based keying makes any disagreement reproduce on one path; tiered acceptance separates ULP noise from real defects |
+| Build fails on the target machine | Python engine is complete alone; `simulate(cfg, "cpp")` raises rather than falling back, and only the CLI degrades |
+| Heston discretisation bias mistaken for a hedging result | The characteristic-function price gates every Heston finding; no Heston chart ships before it is green |
+| `plotext` unusable on Python 3.14 | Named fallback: a small ANSI braille renderer. M4 charts are the gate for M7 |
+| M5 overruns the application window | Degraded deliverable defined above; M2, M4 and M7 are independently presentable |
+| Scope creeps into Phase B | `surface` and `mm` are named non-goals requiring their own spec cycles |
 
-## 21. Seams for later phases
+## 22. Seams for later phases
 
-Phase B (`surface`) and Phase C (`mm`) reuse, unchanged: `protocol/` (pre-registration
-and ledger), `render/` (charts and report composition), `pricing/` (Black-Scholes and
-greeks), the C++ build and the Philox keying scheme.
+Reused unchanged by Phase B and C: `protocol/` (a leaf that hashes canonical TOML and
+stores JSON, importing nothing from `hedge`), `render/charts.py` (plain arrays only),
+`pricing/`, `rng/`, and the C++ build.
 
-What Phase A must expose for them: pricing and greeks as free functions independent
-of the hedging code; the ledger keyed by an opaque configuration hash rather than by
-anything hedge-specific; and the chart helpers taking plain arrays rather than
-`HedgeResult`.
+What Phase A must expose: pricing and greeks as free functions independent of hedging;
+a ledger keyed by an opaque configuration hash; chart helpers taking plain arrays; and
+a TOML registry that lives in `hedge/` so `protocol/` stays domain-free.
 
 ## References
 
