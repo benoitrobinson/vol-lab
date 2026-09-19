@@ -1,0 +1,24 @@
+hypothesis = "Perfectly hedged, zero-cost P&L has zero mean and sd falling as N^-0.5"
+n_mon = 512
+cost_bps = 0.0
+n_paths = 20000
+seed = 11
+chunk_paths = 5000
+config_hash = "e2598601bdd6388e83dfe17cb97deb7bbe4dbba3a9858d1e004abc29ac141728"
+
+[contract]
+kind = "call"
+S0 = 100.0
+K = 100.0
+T = 1.0
+r = 0.0
+q = 0.0
+
+[vols]
+s_imp = 0.3
+s_hedge = 0.3
+s_real = 0.3
+
+[schedule]
+name = "fixed_time"
+every = 1

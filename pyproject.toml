@@ -7,7 +7,7 @@ requires-python = ">=3.14"
 dependencies = [
     "numpy>=2.5",
     "scipy>=1.18",
-    "plotext>=5.3",
+    "plotext>=5.3,<6",   # 6.x is a breaking rewrite whose hist() is broken
 ]
 
 [project.scripts]

@@ -1,0 +1,35 @@
+{
+  "config": {
+    "hypothesis": "golden snapshot: fixed seed reproduces fixed metrics",
+    "contract": {
+      "kind": "call",
+      "S0": 100.0,
+      "K": 105.0,
+      "T": 0.5,
+      "r": 0.03,
+      "q": 0.01
+    },
+    "vols": {
+      "s_imp": 0.35,
+      "s_hedge": 0.3,
+      "s_real": 0.28
+    },
+    "schedule": {
+      "name": "fixed_time",
+      "every": 4
+    },
+    "n_mon": 256,
+    "cost_bps": 7.5,
+    "n_paths": 3000,
+    "seed": 4242,
+    "chunk_paths": 1000
+  },
+  "pnl_mean": 1.754363557408725,
+  "pnl_sd": 0.9244800126107052,
+  "n_rehedges_total": 194731,
+  "turnover_mean": 336.0288557792167,
+  "mask_hash_xor": 14366765399888629471,
+  "attr_gamma_mean": -3.5079860848478037,
+  "attr_theta_mean": 5.847136353794369,
+  "attr_cost_mean": -0.2520216418344125
+}

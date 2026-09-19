@@ -5,5 +5,5 @@ __pycache__/
 build/
 dist/
 *.so
-*.parquet
+.pytest_cache/
 .DS_Store
