@@ -1,0 +1,9 @@
+.vollab/
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+*.so
+*.parquet
+.DS_Store
