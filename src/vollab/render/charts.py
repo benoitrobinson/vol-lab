@@ -9,21 +9,30 @@ import numpy as np
 
 _BLOCKS = " .:-=+*#%@"
 
+# Terminal charts are read on a dark background beside other output, so they are
+# themed to match and sized to stay readable rather than filling the window. A
+# full-width white canvas is what the first version produced, and it swamped
+# everything around it.
+WIDTH, HEIGHT = 76, 18
+THEME = "pro"
 
-def _plt():
+
+def _plt(width=None, height=None):
     try:
         import plotext
-        return plotext
     except Exception:
         return None
+    plotext.clf()
+    plotext.theme(THEME)
+    plotext.plotsize(width or WIDTH, height or HEIGHT)
+    return plotext
 
 
-def loglog(x, y, title, ref_slope=None):
+def loglog(x, y, title, ref_slope=None, width=None, height=None):
     x, y = np.asarray(x, float), np.asarray(y, float)
-    p = _plt()
+    p = _plt(width, height)
     if p is None or x.size < 2:
         return sparkline(y, title)
-    p.clf()
     p.title(title)
     lx, ly = np.log(x), np.log(y)
     p.plot(lx.tolist(), ly.tolist(), marker="braille", label="measured")
@@ -35,23 +44,21 @@ def loglog(x, y, title, ref_slope=None):
     return p.build()
 
 
-def histogram(x, title, bins=60):
+def histogram(x, title, bins=40, width=None, height=None):
     x = np.asarray(x, float)
-    p = _plt()
+    p = _plt(width, height)
     if p is None:
         return sparkline(x, title)
-    p.clf()
     p.title(title)
     p.hist(x.tolist(), bins=bins)
     return p.build()
 
 
-def curve(x, y, title, xlabel="x", ylabel="y"):
+def curve(x, y, title, xlabel="x", ylabel="y", width=None, height=None):
     x, y = np.asarray(x, float), np.asarray(y, float)
-    p = _plt()
+    p = _plt(width, height)
     if p is None or x.size < 2:
         return sparkline(y, title)
-    p.clf()
     p.title(title)
     p.plot(x.tolist(), y.tolist(), marker="braille")
     p.xlabel(xlabel)
@@ -68,12 +75,11 @@ def sparkline(y, title):
     return f"{title}\n{line}\n[{lo:.4g} .. {hi:.4g}]"
 
 
-def smile(k_mkt, iv_mkt, k_fit, iv_fit, title):
+def smile(k_mkt, iv_mkt, k_fit, iv_fit, title, width=None, height=None):
     """Market points against a fitted slice, in volatility points."""
-    p = _plt()
+    p = _plt(width, height)
     if p is None:
         return sparkline(np.asarray(iv_fit), title)
-    p.clf()
     p.title(title)
     p.scatter(np.asarray(k_mkt, float).tolist(),
               (np.asarray(iv_mkt, float) * 100).tolist(), label="market")
@@ -84,12 +90,11 @@ def smile(k_mkt, iv_mkt, k_fit, iv_fit, title):
     return p.build()
 
 
-def density(k, dens, title):
+def density(k, dens, title, width=None, height=None):
     """Risk-neutral density implied by a slice. Dipping below zero is arbitrage."""
-    p = _plt()
+    p = _plt(width, height)
     if p is None:
         return sparkline(np.asarray(dens), title)
-    p.clf()
     p.title(title)
     p.plot(np.asarray(k, float).tolist(), np.asarray(dens, float).tolist(),
            marker="braille", label="density")

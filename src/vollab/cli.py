@@ -234,12 +234,12 @@ def _cmd_mm(a):
 
 
 def _cmd_view(a):
-    from vollab.tui.app import ViewerApp
+    """Open the lab. Everything lives here: lessons, pricer, surface, hedging,
+    market making, the engine benchmark and the run ledger."""
+    from vollab.tui.app import VolLabApp
 
-    if not ledger_path().exists():
-        print("no ledger here; run an experiment first", file=sys.stderr)
-        return 2
-    ViewerApp(ledger_path()).run()
+    db = ledger_path()
+    VolLabApp(db if db.exists() else None).run()
     return 0
 
 
@@ -368,7 +368,7 @@ def main(argv=None):
     mmp.add_argument("--seed", type=int, default=5)
     mmp.set_defaults(fn=_cmd_mm)
 
-    vw = sub.add_parser("view", help="8. browse recorded runs in a TUI")
+    vw = sub.add_parser("view", help="8. open the lab (lessons, charts, tools)")
     vw.set_defaults(fn=_cmd_view)
 
     lg = sub.add_parser("ledger", help="9. list recorded runs")

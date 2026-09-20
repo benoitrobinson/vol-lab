@@ -140,10 +140,13 @@ def test_mm_compares_both_strategies(capsys):
     assert "95% CI" in out
 
 
-def test_view_refuses_when_no_ledger_exists(tmp_path, monkeypatch, capsys):
+def test_view_opens_without_a_ledger(tmp_path, monkeypatch):
+    """The lab is the main panel, so it opens on lessons and tools even before
+    any experiment has been recorded."""
+    from vollab.tui.app import VolLabApp
     monkeypatch.chdir(tmp_path)
-    assert main(["view"]) == 2
-    assert "no ledger" in capsys.readouterr().err
+    app = VolLabApp(None)
+    assert app.rows == []
 
 
 def test_ledger_path_defaults_to_the_working_directory(monkeypatch):
