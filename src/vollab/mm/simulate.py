@@ -87,8 +87,3 @@ def simulate_mm(market, dealer, strategy, seed, n_paths, path_start=0):
         spread_captured=captured,
         strategy=strategy,
     )
-
-
-def reservation_offset(market, dealer, q, tau):
-    """How far the quote centre sits from the mid, for a given inventory."""
-    return reservation_price(0.0, q, dealer.gam, market.sigma, tau)

@@ -84,8 +84,10 @@ def test_hedging_collapses_dispersion_versus_naked_short():
 
     A sign error leaves the mean P&L near zero but roughly doubles the exposure
     instead of cancelling it, so dispersion is the discriminating statistic and
-    the mean is not. Measured: sd 0.46 hedged against 21.0 naked, and 0.30 for
-    the sign-flipped book, which is 91x the correct one.
+    the mean is not. Measured: sd 0.46 hedged against 21.0 naked. Flipping the
+    sign leaves the mean within one standard error of zero while inflating the
+    standard error of that mean by about 91x, which is why the mean cannot
+    detect it and dispersion can.
     """
     from vollab.paths.gbm import gbm_paths
     from vollab.pricing.black_scholes import bs_price

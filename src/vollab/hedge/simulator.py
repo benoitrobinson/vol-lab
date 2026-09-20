@@ -57,7 +57,9 @@ def _run_on_paths(cfg, S, schedule):
         tau = c.T - i * dt
         want = bs_delta(c.kind, S[:, i], c.K, tau, c.r, c.q, s_h)
         gam = bs_gamma(c.kind, S[:, i], c.K, tau, c.r, c.q, v.s_imp)
-        trade = schedule.should_trade(i, cfg.n_mon, want, held_now, S[:, i], gam, dt)
+        trade = schedule.should_trade(
+            i, cfg.n_mon, want, held_now, S[:, i], gam, dt, k
+        )
         return np.where(trade, want, held_now)
 
     cash = np.full(m, bs_price(c.kind, c.S0, c.K, c.T, c.r, c.q, v.s_imp))
@@ -170,6 +172,9 @@ def _simulate_cpp(cfg):
         rehedge_mask_hash=np.zeros(pnl.size, dtype=np.uint64),
         engine_used="cpp", rng_scheme_version=RNG_SCHEME_VERSION,
     )
+    # turnover and rehedge_mask_hash are not computed by the C++ engine. They
+    # are left as zeros rather than silently wrong values; callers that need
+    # them must use the reference engine. See test_engine_parity.
 
 
 def simulate(cfg, engine="numpy"):

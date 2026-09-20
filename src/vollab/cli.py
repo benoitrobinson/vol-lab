@@ -142,12 +142,30 @@ def _cmd_surface(a):
 
     S, r, q = 100.0, 0.0, 0.0
     par = dict(v0=a.v0, kap_h=a.kappa, th_h=a.theta, xi=a.xi, rho=a.rho)
-    ks = np.linspace(-a.width, a.width, a.points)
-    iv = np.array([
-        bs_implied_vol("call", heston_price("call", S, S * np.exp(k), a.T, r, q, **par),
-                       S, S * np.exp(k), a.T, r, q)
-        for k in ks
-    ])
+    # Deep strikes at short maturity can price outside the invertible range,
+    # where vega is numerically zero. A real chain has such strikes; drop them
+    # rather than failing, and say how many went.
+    ks_all = np.linspace(-a.width, a.width, a.points)
+    ks_list, iv_list = [], []
+    for k in ks_all:
+        strike = S * np.exp(k)
+        try:
+            iv_list.append(bs_implied_vol(
+                "call", heston_price("call", S, strike, a.T, r, q, **par),
+                S, strike, a.T, r, q))
+            ks_list.append(k)
+        except ValueError:
+            continue
+    dropped = len(ks_all) - len(ks_list)
+    if len(ks_list) < 5:
+        print(f"refused: only {len(ks_list)} invertible strikes; widen T or narrow "
+              f"--width", file=sys.stderr)
+        return 2
+    ks = np.array(ks_list)
+    iv = np.array(iv_list)
+    if dropped:
+        print(f"note: dropped {dropped} strike(s) where implied vol is not "
+              f"identifiable")
     if a.noise > 0:
         iv = iv + np.random.default_rng(a.seed).normal(0, a.noise / 100.0, iv.size)
 
@@ -238,12 +256,19 @@ def _cmd_bench(a):
             chunk_paths=n_paths,
         )
         ref_full = simulate(HedgeConfig(**base))
-        t = time.time()
-        simulate(HedgeConfig(attribute=False, **base))
-        t_ref = time.time() - t
-        t = time.time()
+
+        def timed(fn, repeats=a.repeats):
+            fn()                                  # warm up, then take the best
+            return min(_one(fn) for _ in range(repeats))
+
+        def _one(fn):
+            t = time.time()
+            fn()
+            return time.time() - t
+
+        t_ref = timed(lambda: simulate(HedgeConfig(attribute=False, **base)))
         cpp = simulate(HedgeConfig(**base), engine="cpp")
-        t_cpp = time.time() - t
+        t_cpp = timed(lambda: simulate(HedgeConfig(**base), engine="cpp"))
 
         scale = max(float(np.abs(ref_full.pnl).max()), 1.0)
         d_pnl = float(np.abs(cpp.pnl - ref_full.pnl).max()) / scale
@@ -252,8 +277,9 @@ def _cmd_bench(a):
               f"{t_ref / t_cpp:8.1f}x {d_pnl:10.1e} {d_n:10.0f}")
 
     print()
-    print("Timings compare equal work: the reference runs with attribution off,")
-    print("since the C++ engine computes P&L and rehedge counts only.")
+    print(f"Best of {a.repeats} timed repeats after a warmup. Timings compare equal")
+    print("work: the reference runs with attribution off, since the C++ engine")
+    print("computes P&L and rehedge counts only.")
     return 0
 
 
@@ -298,6 +324,8 @@ def main(argv=None):
 
     bn = sub.add_parser("bench", help="5. NumPy reference against the C++ engine")
     bn.add_argument("--paths", type=int, default=20000)
+    bn.add_argument("--repeats", type=int, default=3,
+                    help="timing repeats; the best is reported, after a warmup")
     bn.set_defaults(fn=_cmd_bench)
 
     sf = sub.add_parser("surface", help="6. fit an SVI slice and check it for arbitrage")

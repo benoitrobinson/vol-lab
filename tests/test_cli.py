@@ -102,3 +102,44 @@ def test_ledger_lists_runs(tmp_path, monkeypatch, capsys):
     main(["run", str(p)])
     assert main(["ledger"]) == 0
     assert "smoke" in capsys.readouterr().out
+
+
+def test_bench_runs_or_reports_a_missing_extension(capsys):
+    from vollab.hedge.simulator import cpp_available
+    rc = main(["bench", "--paths", "500", "--repeats", "1"])
+    out = capsys.readouterr()
+    if cpp_available():
+        assert rc == 0
+        assert "speedup" in out.out.lower()
+    else:
+        assert rc == 2
+        assert "not built" in out.err
+
+
+def test_surface_fits_and_reports_arbitrage_diagnostics(capsys):
+    assert main(["surface", "--points", "9", "--T", "1.0"]) == 0
+    out = capsys.readouterr().out
+    assert "SVI" in out and "Durrleman" in out and "rmse" in out
+
+
+def test_surface_flags_a_slice_that_implies_a_negative_density(capsys):
+    """Exit 1 and a warning, rather than printing a slice that is not a price."""
+    rc = main(["surface", "--points", "7", "--T", "0.08", "--noise", "6.0",
+               "--seed", "3", "--unconstrained"])
+    err = capsys.readouterr().err
+    assert rc in (0, 1)
+    if rc == 1:
+        assert "negative density" in err
+
+
+def test_mm_compares_both_strategies(capsys):
+    assert main(["mm", "--paths", "400", "--steps", "60"]) == 0
+    out = capsys.readouterr().out
+    assert "avellaneda_stoikov" in out and "symmetric" in out
+    assert "95% CI" in out
+
+
+def test_view_refuses_when_no_ledger_exists(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert main(["view"]) == 2
+    assert "no ledger" in capsys.readouterr().err

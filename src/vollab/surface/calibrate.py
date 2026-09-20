@@ -81,8 +81,13 @@ def _outer(k, w, span):
     return _to_params(m, sigma, a, d, c)
 
 
-def _polish(p0, k, iv_mkt, T, weights, k_grid, span):
-    """Enforce Durrleman's condition directly, starting from the quasi-explicit fit."""
+def _polish(p0, k, iv_mkt, T, weights, k_grid, span, constrained=True):
+    """Local refinement from the quasi-explicit fit.
+
+    With constrained=True the no-arbitrage conditions are enforced during the
+    solve. With constrained=False the identical solve runs without them, which
+    is what makes the two comparable.
+    """
     def obj(x):
         p = SVIParams.from_array(x)
         w = np.maximum(total_variance(p, k), W_FLOOR)
@@ -100,7 +105,8 @@ def _polish(p0, k, iv_mkt, T, weights, k_grid, span):
          "fun": lambda x: np.min(durrleman_g(SVIParams.from_array(x), k_grid))},
     ]
     res = minimize(obj, p0.as_array(), method="SLSQP", bounds=bounds,
-                   constraints=cons, options={"maxiter": 600, "ftol": 1e-14})
+                   constraints=cons if constrained else (),
+                   options={"maxiter": 600, "ftol": 1e-14})
     return SVIParams.from_array(res.x) if res.success else None
 
 
@@ -119,16 +125,17 @@ def calibrate_svi(k, iv_mkt, T, weights=None, arb_free=True, n_grid=201):
 
     p = _outer(k, w, span)
 
-    if arb_free:
-        polished = _polish(p, k, iv_mkt, T, weights, k_grid, span)
-        if polished is not None:
-            p = polished
-        elif np.min(durrleman_g(p, k_grid)) < 0:
-            raise RuntimeError("no arbitrage-free SVI fit found for this slice")
-    elif weights.std() > 0:
-        free = _polish_unconstrained(p, k, iv_mkt, T, weights, span)
-        if free is not None:
-            p = free
+    # Both arms run the identical optimiser and differ only in the constraint
+    # set. An earlier version polished only the constrained arm, which made any
+    # comparison between them a comparison of optimisers rather than of
+    # constraints, and produced the nonsensical result that constraining a fit
+    # improved it.
+    polished = _polish(p, k, iv_mkt, T, weights, k_grid, span,
+                       constrained=arb_free)
+    if polished is not None:
+        p = polished
+    if arb_free and np.min(durrleman_g(p, k_grid)) < -1e-8:
+        raise RuntimeError("no arbitrage-free SVI fit found for this slice")
 
     fitted = np.sqrt(np.maximum(total_variance(p, k), W_FLOOR) / T)
     rmse = float(np.sqrt(np.mean((fitted - iv_mkt) ** 2)))
@@ -141,17 +148,3 @@ def calibrate_svi(k, iv_mkt, T, weights=None, arb_free=True, n_grid=201):
         "wing_right": wing_slopes(p)[1],
     }
     return p, rmse, diag
-
-
-def _polish_unconstrained(p0, k, iv_mkt, T, weights, span):
-    def obj(x):
-        p = SVIParams.from_array(x)
-        w = np.maximum(total_variance(p, k), W_FLOOR)
-        return float(np.sum(((np.sqrt(w / T) - iv_mkt) * weights) ** 2))
-
-    lo, hi = float(k.min()), float(k.max())
-    bounds = [(-1.0, 5.0), (0.0, 10.0), (-0.999, 0.999),
-              (lo - span, hi + span), (1e-5, 10.0 * span)]
-    res = minimize(obj, p0.as_array(), method="SLSQP", bounds=bounds,
-                   options={"maxiter": 600, "ftol": 1e-14})
-    return SVIParams.from_array(res.x) if res.success else None

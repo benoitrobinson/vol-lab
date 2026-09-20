@@ -15,7 +15,7 @@ import numpy as np
 class FixedTime:
     every: int
 
-    def should_trade(self, step, n_mon, delta_target, delta_held, S, gamma, dt):
+    def should_trade(self, step, n_mon, delta_target, delta_held, S, gamma, dt, k=0.0):
         on = (step % self.every == 0) or step == n_mon
         return np.full(delta_target.shape, on, dtype=bool)
 
@@ -27,7 +27,7 @@ class FixedTime:
 class DeltaBand:
     h: float
 
-    def should_trade(self, step, n_mon, delta_target, delta_held, S, gamma, dt):
+    def should_trade(self, step, n_mon, delta_target, delta_held, S, gamma, dt, k=0.0):
         if step == 0 or step == n_mon:
             return np.ones(delta_target.shape, dtype=bool)
         return np.abs(delta_target - delta_held) > self.h
@@ -47,7 +47,7 @@ class Leland:
     every: int
     short: bool = True
 
-    def should_trade(self, step, n_mon, delta_target, delta_held, S, gamma, dt):
+    def should_trade(self, step, n_mon, delta_target, delta_held, S, gamma, dt, k=0.0):
         on = (step % self.every == 0) or step == n_mon
         return np.full(delta_target.shape, on, dtype=bool)
 
@@ -71,13 +71,10 @@ class WhalleyWilmott:
     def band_width(self, S, gamma, k):
         return np.cbrt(1.5 * k * S * gamma * gamma / self.gam_ra)
 
-    def should_trade(self, step, n_mon, delta_target, delta_held, S, gamma, dt):
+    def should_trade(self, step, n_mon, delta_target, delta_held, S, gamma, dt, k=0.0):
         if step == 0 or step == n_mon:
             return np.ones(delta_target.shape, dtype=bool)
-        return np.abs(delta_target - delta_held) > self.band_width(S, gamma, self._k)
+        return np.abs(delta_target - delta_held) > self.band_width(S, gamma, k)
 
     def hedge_vol(self, s_hedge, k, dt):
-        # The simulator calls this once before the step loop, which is how the
-        # band gains access to k without widening the shared should_trade signature.
-        object.__setattr__(self, "_k", k)
         return s_hedge

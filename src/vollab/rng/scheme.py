@@ -26,13 +26,19 @@ def _uniforms(seed, path_index, n):
     return np.random.Generator(bg).random(n)
 
 
+# numpy's random() samples [0, 1), so an exact 0.0 is attainable and would map
+# to -inf. Nudging it to the smallest representable positive double costs
+# nothing statistically and removes an infinity that would poison a whole path.
+_TINY = np.nextafter(0.0, 1.0)
+
+
 def normals(seed, path_index, n):
     """Inverse-CDF normals for one path.
 
     Prefix stable: asking for more draws extends the same stream rather than
     producing a different one, which is what makes Brownian nesting exact.
     """
-    return ndtri(_uniforms(seed, path_index, n))
+    return ndtri(np.maximum(_uniforms(seed, path_index, n), _TINY))
 
 
 def normals_block(seed, path_start, n_paths, n):

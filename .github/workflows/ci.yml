@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build, including the C++ extension
+        run: uv sync
+
+      - name: The C++ engine must be present, not skipped
+        run: uv run python -c "from vollab import _core; print(_core.uniforms(7, 0, 3))"
+
+      - name: Test suite
+        run: uv run pytest -q
+
+      - name: Findings must still match the committed artifact
+        run: uv run python scripts/report.py --quick && uv run pytest tests/test_report_matches.py -q
+
+      - name: CLI smoke test
+        run: |
+          uv run vl price --K 100 --T 1 --vol 0.3
+          uv run vl surface --noise 1.0
+          uv run vl mm --paths 500
+          uv run vl bench --paths 2000

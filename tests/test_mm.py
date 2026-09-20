@@ -19,7 +19,9 @@ def test_reservation_price_leans_against_inventory():
     assert reservation_price(100.0, -10, D.gam, M.sigma, 1.0) > 100.0
 
 
-def test_reservation_offset_vanishes_at_the_horizon():
+def test_reservation_price_returns_to_the_mid_at_the_horizon():
+    """Named for what it tests. The previous name referred to a function it
+    never called, which is worse than no test at all."""
     assert reservation_price(100.0, 20, D.gam, M.sigma, 0.0) == 100.0
 
 

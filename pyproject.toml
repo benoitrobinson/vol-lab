@@ -37,6 +37,7 @@ rebuild = false
 dev = [
     "pytest>=9.1",
     "hypothesis>=6.168",
+    "matplotlib>=3.9",   # figures only; the library itself never imports it
     "pytest-asyncio>=0.24",
     "tomli-w>=1.0",
 ]
