@@ -174,29 +174,48 @@ def fig_market_making():
 
 
 def fig_variance_reduction():
-    """The control variate that works, against the two that do not."""
+    """Variance ratio, not correlation.
+
+    An earlier version plotted |correlation with P&L| and gave antithetic
+    sampling a zero-length bar, which reads as "uncorrelated" and is the wrong
+    reason. Antithetic is not a control variate: a mirrored path reproduces the
+    hedging error exactly, so the pair correlates at +1 and the scheme removes
+    nothing. Variance ratio puts all three on one comparable axis.
+    """
     v = F["variance_reduction"]
-    fig, ax = plt.subplots(figsize=(7.2, 3.2))
-    names = ["terminal payoff\n(textbook choice)", "antithetic pairing",
-             "realized $-$ implied\nvariance"]
-    corr = [abs(v["payoff_control_correlation"]), 0.0, abs(v["correlation"])]
-    colours = [MUTED, MUTED, ACCENT]
-    bars = ax.barh(names, corr, color=colours, height=0.55)
-    zero_line(ax)
-    ax.set_xlabel("|correlation| with terminal hedging P&L")
-    ax.set_xlim(0, 1.0)
+    fig, ax = plt.subplots(figsize=(7.2, 3.4))
+
+    names = ["realized $-$ implied variance\n(derived from the F1 mechanism)",
+             "terminal payoff\n(the textbook choice)",
+             "antithetic pairing\n(not a control variate)"]
+    ratios = [v["variance_ratio"], 1.0, 1.0]
+    colours = [ACCENT, MUTED, MUTED]
+    ax.barh(names, ratios, color=colours, height=0.5, zorder=2)
+
+    ax.axvline(1.0, color="#2b3440", linewidth=0.8, zorder=3)
+    ax.set_xlim(0, 1.25)
+    ax.set_xlabel("variance of the adjusted estimator, relative to plain sampling "
+                  "(lower is better; 1.0 buys nothing)")
     ax.set_title("Only a quadratic-variation control reduces variance here",
                  loc="left", fontsize=10)
-    ax.annotate(f"variance ratio {v['variance_ratio']:.2f},\n"
-                f"about {1 / v['variance_ratio']:.1f}x the effective sample",
-                xy=(corr[2], 2), xytext=(-8, -26), textcoords="offset points",
-                fontsize=8.2, color=ACCENT, ha="right")
-    ax.annotate("a working hedge removes exactly the part\n"
-                "of P&L that tracks the terminal value",
-                xy=(corr[0], 0), xytext=(14, 2), textcoords="offset points",
-                fontsize=8, color=MUTED)
+
+    ax.annotate(f"{v['variance_ratio']:.2f}, about "
+                f"{1 / v['variance_ratio']:.1f}x the effective sample size\n"
+                f"correlation with P&L {v['correlation']:+.2f}",
+                xy=(v["variance_ratio"], 0), xytext=(8, 0),
+                textcoords="offset points", va="center", fontsize=8.2, color=ACCENT)
+    ax.annotate(f"correlation only {v['payoff_control_correlation']:+.3f}: a working\n"
+                f"hedge removes exactly the part of P&L\nthat tracks the terminal value",
+                xy=(1.0, 1), xytext=(-8, 0), textcoords="offset points",
+                va="center", ha="right", fontsize=8, color="white")
+    ax.annotate("a mirrored path reproduces the error\n"
+                "exactly, so the pair correlates at $+1$",
+                xy=(1.0, 2), xytext=(-8, 0), textcoords="offset points",
+                va="center", ha="right", fontsize=8, color="white")
+
     meta = F["meta"]
-    annotate_n(ax, f"n = {meta['n_paths']:,} paths, 512-step grid")
+    ax.text(0.99, -0.30, f"n = {meta['n_paths']:,} paths, 512-step grid",
+            transform=ax.transAxes, ha="right", va="top", fontsize=7.4, color=MUTED)
     fig.savefig(FIG / "variance_reduction.png")
     plt.close(fig)
 
