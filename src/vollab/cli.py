@@ -168,6 +168,40 @@ def _cmd_surface(a):
     return 0
 
 
+def _cmd_mm(a):
+    """Quote two-sided against a simulated mid, with and without inventory skew."""
+    import numpy as np
+
+    from vollab.metrics.bootstrap import paired_bootstrap
+    from vollab.mm.quoting import DealerParams, MarketParams
+    from vollab.mm.simulate import simulate_mm
+
+    market = MarketParams(sigma=a.sigma, A=a.A, kappa=a.kappa,
+                          T=a.T, n_steps=a.steps)
+    runs = {}
+    for strat in ("avellaneda_stoikov", "symmetric"):
+        runs[strat] = simulate_mm(market, DealerParams(gam=a.gam, max_inventory=a.cap),
+                                  strat, seed=a.seed, n_paths=a.paths)
+
+    hdr = f"{'strategy':22s} {'pnl':>9s} {'sd':>8s} {'ratio':>7s} {'|q| max':>8s} {'fills':>7s}"
+    print(hdr)
+    for name, r in runs.items():
+        print(f"{name:22s} {r.pnl.mean():9.3f} {r.pnl.std(ddof=1):8.3f} "
+              f"{r.pnl.mean() / r.pnl.std(ddof=1):7.3f} "
+              f"{r.inventory_max_abs.mean():8.2f} {r.n_fills.mean():7.1f}")
+
+    a_pnl = runs["avellaneda_stoikov"].pnl
+    s_pnl = runs["symmetric"].pnl
+    diff, lo, hi = paired_bootstrap(a_pnl, s_pnl, n_boot=2000)
+    print()
+    print(f"skew minus control, paired: {diff:+.3f}  95% CI [{lo:+.3f}, {hi:+.3f}]")
+    print(histogram(runs["avellaneda_stoikov"].inventory_end.astype(float),
+                    "end inventory, with skew", bins=41))
+    print(histogram(runs["symmetric"].inventory_end.astype(float),
+                    "end inventory, control", bins=41))
+    return 0
+
+
 def _cmd_view(a):
     from vollab.tui.app import ViewerApp
 
@@ -281,10 +315,22 @@ def main(argv=None):
                     help="fit without the no-arbitrage constraints")
     sf.set_defaults(fn=_cmd_surface)
 
-    vw = sub.add_parser("view", help="7. browse recorded runs in a TUI")
+    mmp = sub.add_parser("mm", help="7. market making, with and without inventory skew")
+    mmp.add_argument("--gam", type=float, default=0.1, help="inventory risk aversion")
+    mmp.add_argument("--sigma", type=float, default=2.0)
+    mmp.add_argument("--A", type=float, default=140.0)
+    mmp.add_argument("--kappa", type=float, default=1.5)
+    mmp.add_argument("--T", type=float, default=1.0)
+    mmp.add_argument("--steps", type=int, default=200)
+    mmp.add_argument("--paths", type=int, default=4000)
+    mmp.add_argument("--cap", type=int, default=50)
+    mmp.add_argument("--seed", type=int, default=5)
+    mmp.set_defaults(fn=_cmd_mm)
+
+    vw = sub.add_parser("view", help="8. browse recorded runs in a TUI")
     vw.set_defaults(fn=_cmd_view)
 
-    lg = sub.add_parser("ledger", help="8. list recorded runs")
+    lg = sub.add_parser("ledger", help="9. list recorded runs")
     lg.set_defaults(fn=_cmd_ledger)
 
     a = p.parse_args(argv)
