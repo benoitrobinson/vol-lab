@@ -119,3 +119,63 @@ def test_paths_are_shared_between_strategies():
     a = simulate_mm(M, D, "avellaneda_stoikov", seed=9, n_paths=100)
     b = simulate_mm(M, D, "avellaneda_stoikov", seed=9, n_paths=100)
     assert np.array_equal(a.pnl, b.pnl)
+
+
+# --- invariants every quoting strategy must satisfy ---------------------------
+#
+# The inventory-skew sign has been wrong twice in this module: once in
+# Avellaneda-Stoikov and once in GLFT. Both times the symptom was identical,
+# inventory pinned against the position limit, and both times the naive control
+# was what exposed it. These run over the whole registry so a third strategy
+# cannot reintroduce it.
+
+import pytest as _pytest
+
+from vollab.mm.simulate import STRATEGIES
+
+SKEWING = [name for name in STRATEGIES if name != "symmetric"]
+
+
+@_pytest.mark.parametrize("name", SKEWING)
+def test_every_strategy_leans_against_inventory(name):
+    """Long inventory must pull the ask closer than the bid, and short the
+    reverse. This is the sign that makes inventory mean-revert."""
+    fn = STRATEGIES[name]
+    a_long, b_long = fn(10, D.gam, M.sigma, 1.0, M.kappa)
+    assert np.all(a_long < b_long), f"{name} widens the ask when long"
+    a_short, b_short = fn(-10, D.gam, M.sigma, 1.0, M.kappa)
+    assert np.all(b_short < a_short), f"{name} widens the bid when short"
+
+
+@_pytest.mark.parametrize("name", SKEWING)
+def test_every_strategy_is_symmetric_when_flat(name):
+    a, b = STRATEGIES[name](0, D.gam, M.sigma, 1.0, M.kappa)
+    assert float(a) == _pytest.approx(float(b))
+
+
+@_pytest.mark.parametrize("name", SKEWING)
+def test_every_strategy_controls_inventory_better_than_no_skew(name):
+    """The point of skewing. Any strategy that does not beat the never-skewed
+    control on inventory is mis-signed, whatever its P&L looks like."""
+    skewed = simulate_mm(M, D, name, seed=5, n_paths=2000)
+    flat = simulate_mm(M, D, "symmetric", seed=5, n_paths=2000)
+    assert skewed.inventory_max_abs.mean() < flat.inventory_max_abs.mean()
+
+
+@_pytest.mark.parametrize("name", list(STRATEGIES))
+def test_no_strategy_pins_against_the_position_limit(name):
+    """The signature of an inverted skew: the book runs to its cap."""
+    r = simulate_mm(M, D, name, seed=5, n_paths=2000)
+    assert r.inventory_max_abs.mean() < 0.5 * D.max_inventory
+
+
+def test_glft_quotes_do_not_depend_on_the_horizon():
+    """GLFT is the steady-state solution, so unlike AS it does not narrow as
+    the horizon approaches. That difference is the reason to implement it."""
+    from vollab.mm.quoting import glft_half_spreads, optimal_half_spreads
+    wide = sum(glft_half_spreads(0, D.gam, M.sigma, 1.0, M.kappa, M.A))
+    near = sum(glft_half_spreads(0, D.gam, M.sigma, 0.01, M.kappa, M.A))
+    assert wide == _pytest.approx(near)
+    as_wide = sum(optimal_half_spreads(0, D.gam, M.sigma, 1.0, M.kappa))
+    as_near = sum(optimal_half_spreads(0, D.gam, M.sigma, 0.01, M.kappa))
+    assert as_near < as_wide

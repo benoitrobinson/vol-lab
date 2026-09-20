@@ -15,12 +15,19 @@ from dataclasses import dataclass
 import numpy as np
 
 from vollab.mm.quoting import (
-    optimal_half_spreads, reservation_price, symmetric_half_spreads,
+    glft_half_spreads, optimal_half_spreads, reservation_price,
+    symmetric_half_spreads,
 )
 from vollab.rng.scheme import JUMP_STREAM_SALT, normals_block, uniforms_block
 
+def _glft(q, gam, sigma, tau, kappa):
+    """GLFT ignores tau by construction; the signature is shared with the others."""
+    return glft_half_spreads(q, gam, sigma, tau, kappa)
+
+
 STRATEGIES = {"avellaneda_stoikov": optimal_half_spreads,
-              "symmetric": symmetric_half_spreads}
+              "symmetric": symmetric_half_spreads,
+              "glft": _glft}
 
 
 @dataclass(frozen=True)

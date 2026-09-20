@@ -135,9 +135,11 @@ def fig_market_making():
     sweep = F["f7_market_making"]["sweep"]
     gams = sorted(float(g) for g in sweep)
     fig, ax = plt.subplots(figsize=(7.2, 3.6))
-    for strat, colour, style, label in (
-            ("avellaneda_stoikov", ACCENT, "-", "inventory skew"),
-            ("symmetric", INK, "--", "symmetric control")):
+    series = [("avellaneda_stoikov", ACCENT, "-", "Avellaneda-Stoikov"),
+              ("glft", "#2e7d5b", "-.", "GLFT steady state"),
+              ("symmetric", INK, "--", "symmetric control")]
+    for strat, colour, style, label in [t for t in series
+                                        if t[0] in sweep[str(gams[0])]]:
         m = np.array([sweep[str(g)][strat]["ratio"]["mean"] for g in gams])
         e = np.array([sweep[str(g)][strat]["ratio"]["sd"] for g in gams])
         ax.errorbar(gams, m, yerr=e, color=colour, ls=style, marker="o", ms=3.5,
@@ -146,7 +148,7 @@ def fig_market_making():
     ax.set_xscale("log")
     ax.set_xlabel("inventory risk aversion $\\gamma$ (log scale)")
     ax.set_ylabel("mean P&L divided by its sd")
-    ax.set_title("Leaning against inventory pays, but only up to a point",
+    ax.set_title("The horizon term costs more the more risk averse you are",
                  loc="left", fontsize=10)
     best = F["f7_market_making"].get("best_gam")
     nb = F["f7_market_making"].get("best_vs_neighbours", {})
@@ -154,10 +156,11 @@ def fig_market_making():
         bm = sweep[best]["avellaneda_stoikov"]["ratio"]
         worst = min(v["separation_se"] for v in nb.values())
         ax.annotate(
-            f"interior optimum at $\\gamma={best}$, separated from both\n"
-            f"neighbours by at least {worst:.0f} standard errors\n"
-            f"(paired across {bm['n_seeds']} seeds)",
-            xy=(float(best), bm["mean"]), xytext=(0.08, 0.40),
+            f"Avellaneda-Stoikov peaks at $\\gamma={best}$ and falls away,\n"
+            f"separated from both neighbours by {worst:.0f}+ standard errors.\n"
+            f"The steady-state form keeps improving: it does not\n"
+            f"widen itself out of the market as $\\gamma$ grows.",
+            xy=(float(best), bm["mean"]), xytext=(0.04, 0.42),
             textcoords="axes fraction", fontsize=8.2, color=ACCENT, va="top",
             arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.8,
                             connectionstyle="arc3,rad=0.2"))

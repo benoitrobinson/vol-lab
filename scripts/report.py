@@ -240,7 +240,7 @@ def f7_market_making(n_paths, seeds, gams=(0.01, 0.05, 0.1, 0.3, 1.0)):
     for gam in gams:
         dealer = DealerParams(gam=gam)
         row = {}
-        for strat in ("avellaneda_stoikov", "symmetric"):
+        for strat in ("avellaneda_stoikov", "glft", "symmetric"):
             m, sd, inv = [], [], []
             for s in seeds:
                 r = simulate_mm(market, dealer, strat, seed=s, n_paths=n_paths)
@@ -273,10 +273,28 @@ def f7_market_making(n_paths, seeds, gams=(0.01, 0.05, 0.1, 0.3, 1.0)):
     out["best_vs_neighbours"] = neighbours
 
     dealer = DealerParams(gam=0.1)
-    a = simulate_mm(market, dealer, "avellaneda_stoikov", seed=seeds[0], n_paths=n_paths)
-    b = simulate_mm(market, dealer, "symmetric", seed=seeds[0], n_paths=n_paths)
-    diff, lo, hi = paired_bootstrap(a.pnl, b.pnl, n_boot=2000)
-    out["skew_minus_control"] = {"diff": diff, "ci_low": lo, "ci_high": hi}
+    runs = {s_: simulate_mm(market, dealer, s_, seed=seeds[0], n_paths=n_paths)
+            for s_ in ("avellaneda_stoikov", "glft", "symmetric")}
+    out["pairwise"] = {}
+    for left, right in (("avellaneda_stoikov", "symmetric"),
+                        ("glft", "symmetric"),
+                        ("glft", "avellaneda_stoikov")):
+        diff, lo, hi = paired_bootstrap(runs[left].pnl, runs[right].pnl, n_boot=2000)
+        out["pairwise"][f"{left}_minus_{right}"] = {
+            "diff": diff, "ci_low": lo, "ci_high": hi,
+            "straddles_zero": bool(lo <= 0 <= hi)}
+    out["skew_minus_control"] = out["pairwise"]["avellaneda_stoikov_minus_symmetric"]
+
+    # The horizon term is the difference between the two closed forms.
+    from vollab.mm.quoting import glft_half_spreads, optimal_half_spreads
+    out["horizon_effect"] = {
+        "as_spread_far": float(sum(optimal_half_spreads(
+            0, dealer.gam, market.sigma, market.T, market.kappa))),
+        "as_spread_near": float(sum(optimal_half_spreads(
+            0, dealer.gam, market.sigma, 0.01, market.kappa))),
+        "glft_spread": float(sum(glft_half_spreads(
+            0, dealer.gam, market.sigma, market.T, market.kappa, market.A))),
+    }
     return out
 
 
@@ -347,6 +365,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true",
                     help="small samples, for a smoke test rather than the report")
+    ap.add_argument("--out", type=Path, default=OUT,
+                    help="where to write. A smoke run must not clobber the "
+                         "committed artifact, or the drift check compares a "
+                         "2-seed render against a 5-seed one and always fails.")
     args = ap.parse_args()
 
     n_paths = 1000 if args.quick else 8000
@@ -379,9 +401,14 @@ def main():
     }
     findings["meta"]["runtime_s"] = round(time.time() - t0, 1)
 
-    OUT.parent.mkdir(exist_ok=True)
-    OUT.write_text(json.dumps(findings, indent=2, sort_keys=True))
-    print(f"wrote {OUT.relative_to(ROOT)} in {findings['meta']['runtime_s']}s")
+    out = args.out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(findings, indent=2, sort_keys=True))
+    try:
+        shown = out.relative_to(ROOT)
+    except ValueError:
+        shown = out
+    print(f"wrote {shown} in {findings['meta']['runtime_s']}s")
     f1 = findings["f1_discretisation"]["slope"]
     print(f"  F1 slope {f1['mean']:+.4f} +/- {f1['sd']:.4f} over {f1['n_seeds']} seeds")
 

@@ -136,23 +136,34 @@ def blocks(f):
 
     d = f["f7_market_making"]
     gams = sorted(d["sweep"], key=float)
+    strats = [s_ for s_ in ("avellaneda_stoikov", "glft", "symmetric")
+              if s_ in d["sweep"][gams[0]]]
+    header = " | ".join(s_.replace("_", " ") for s_ in strats)
     rows = "\n".join(
-        f"| {g} | {d['sweep'][g]['avellaneda_stoikov']['ratio']['mean']:.2f} "
-        f"+/- {d['sweep'][g]['avellaneda_stoikov']['ratio']['sd']:.2f} | "
-        f"{d['sweep'][g]['symmetric']['ratio']['mean']:.2f} "
-        f"+/- {d['sweep'][g]['symmetric']['ratio']['sd']:.2f} | "
-        f"{d['sweep'][g]['avellaneda_stoikov']['peak_inventory']['mean']:.1f} | "
-        f"{d['sweep'][g]['symmetric']['peak_inventory']['mean']:.1f} |"
+        f"| {g} | " + " | ".join(
+            f"{d['sweep'][g][s_]['ratio']['mean']:.2f} +/- "
+            f"{d['sweep'][g][s_]['ratio']['sd']:.2f}" for s_ in strats) + " |"
         for g in gams)
+    pw = d.get("pairwise", {})
+    pw_rows = "\n".join(
+        f"| {k.replace('_minus_', ' minus ').replace('_', ' ')} | {v['diff']:+.3f} | "
+        f"[{v['ci_low']:+.3f}, {v['ci_high']:+.3f}] | "
+        f"{'straddles zero' if v['straddles_zero'] else 'decisive'} |"
+        for k, v in pw.items())
+    he = d.get("horizon_effect", {})
     sk = d["skew_minus_control"]
     out["f7"] = (
-        f"| risk aversion | skew, P&L over sd | control, P&L over sd | skew peak inventory | "
-        f"control peak inventory |\n|---|---|---|---|---|\n{rows}\n\n"
-        f"Paired difference in mean P&L at the middle setting: **{sk['diff']:+.3f}**, "
-        f"95% interval\n[{sk['ci_low']:+.3f}, {sk['ci_high']:+.3f}]. The skew costs "
-        f"expected P&L and buys risk.\n\n"
-        f"The error bars matter here. Neighbouring risk aversions overlap, so the sweep\n"
-        f"locates a region where skewing helps rather than an optimal value of gamma.")
+        f"Mean P&L divided by its standard deviation, across risk aversions:\n\n"
+        f"| risk aversion | {header} |\n"
+        + "|---" * (len(strats) + 1) + "|\n" + rows + "\n\n"
+        f"Paired differences in mean P&L, same paths:\n\n"
+        f"| comparison | difference | 95% interval | |\n|---|---|---|---|\n{pw_rows}\n\n"
+        + (f"The horizon term explains it. Avellaneda-Stoikov widens as the horizon\n"
+           f"lengthens, quoting {he['as_spread_far']:.3f} total at one year against "
+           f"{he['as_spread_near']:.3f} near expiry.\n"
+           f"The steady-state form quotes {he['glft_spread']:.3f} regardless, because a "
+           f"dealer who keeps\nquoting has no horizon. The wider quote costs fills, and "
+           f"the fills are the edge.\n" if he else ""))
 
     d = f.get("f8_inverse")
     if d:

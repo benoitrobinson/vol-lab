@@ -25,8 +25,17 @@ jobs:
       - name: Test suite
         run: uv run pytest -q
 
-      - name: Findings must still match the committed artifact
-        run: uv run python scripts/report.py --quick && uv run pytest tests/test_report_matches.py -q
+      - name: REPORT.md must match the committed artifact
+        run: uv run pytest tests/test_report_matches.py -q
+
+      - name: The report pipeline must still run end to end
+        # Writes elsewhere on purpose. A smoke run that overwrote the committed
+        # artifact would make the drift check above compare a 2-seed render
+        # against a 5-seed one, which can only fail.
+        run: |
+          uv run python scripts/report.py --quick --out /tmp/smoke.json
+          test -s /tmp/smoke.json
+          git diff --exit-code -- artifacts/ REPORT.md
 
       - name: CLI smoke test
         run: |

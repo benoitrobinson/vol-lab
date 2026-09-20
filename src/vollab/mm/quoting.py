@@ -66,3 +66,45 @@ def symmetric_half_spreads(q, gam, sigma, tau, kappa):
     """
     total = gam * sigma ** 2 * tau + (2.0 / gam) * np.log1p(gam / kappa)
     return 0.5 * total, 0.5 * total
+
+
+def glft_half_spreads(q, gam, sigma, tau, kappa, A=None):
+    """Gueant, Lehalle and Fernandez-Tapia (2013) closed-form quotes.
+
+    Avellaneda-Stoikov solves a control problem whose exact solution is a system
+    of ODEs; the widely used formulas are its small-inventory expansion. GLFT
+    show that under exponential fill intensities the system linearises and admits
+    a closed form, and the resulting quotes differ from AS in two ways that
+    matter on a real book.
+
+    The half-spread is
+
+        d = 1/gam * ln(1 + gam/kappa)  +  (2q + 1)/2 * sqrt(
+                sigma^2 * gam / (2 * kappa * A) * (1 + gam/kappa)^(1 + kappa/gam))
+
+    The first term is the same spread AS charges for the fill trade-off. The
+    second is the inventory term, and unlike AS it does not carry `tau`: the
+    steady-state solution does not widen as the horizon approaches, because a
+    dealer who keeps quoting has no horizon. AS quotes collapse toward the mid
+    as `tau -> 0`, which is an artefact of the finite-horizon formulation rather
+    than desk behaviour.
+
+    The `(2q + 1)/2` asymmetry is the second difference: the inventory
+    adjustment is not symmetric in `q`, so a flat dealer already quotes a
+    fractionally skewed market.
+    """
+    if A is None:
+        A = 140.0
+    base = np.log1p(gam / kappa) / gam
+    inner = (sigma ** 2 * gam / (2.0 * kappa * A)
+             * (1.0 + gam / kappa) ** (1.0 + kappa / gam))
+    scale = np.sqrt(max(inner, 0.0))
+    q = np.asarray(q, dtype=float)
+    # A long dealer quotes a closer ask and a further bid, so the inventory term
+    # is subtracted from the ask and added to the bid. Reversing these two lines
+    # produces a book that amplifies inventory instead of damping it; that is
+    # the error `test_every_strategy_leans_against_inventory` exists to catch,
+    # and it has caught it twice in this module.
+    d_a = base - (2.0 * q - 1.0) / 2.0 * scale
+    d_b = base + (2.0 * q + 1.0) / 2.0 * scale
+    return d_a, d_b

@@ -17,7 +17,7 @@ schedule comparison, is in [REPORT.md](REPORT.md).
 
 ## Findings
 
-Seven findings, each with a test that fails if the engine is wrong and a command that
+Eight findings, each with a test that fails if the engine is wrong and a command that
 regenerates it. Numbers below are means over 5 seeds; the full write-up with
 uncertainties, figures and stated limitations is in [REPORT.md](REPORT.md).
 
@@ -29,7 +29,8 @@ uncertainties, figures and stated limitations is in [REPORT.md](REPORT.md).
 | 4 | Jumps floor the hedging error at a level frequency cannot reach | GBM **-0.499**, Merton **-0.087** |
 | 5 | Under costs the optimum is a band, not a frequency | the band trades far less for a better mean |
 | 6 | An unconstrained smile fit implies negative probabilities | up to 12 of 30 fits, removed at a cost of 0.08 vol points |
-| 7 | Inventory skew halves a market maker's P&L dispersion | interior optimum, separated by 6+ standard errors |
+| 7 | Inventory skew halves a market maker's P&L dispersion, and the horizon term costs real money | the steady-state form keeps improving where Avellaneda-Stoikov collapses |
+| 8 | Coin-settled options need their own delta | a converted vanilla delta is wrong by up to **53%** |
 
 Two numerical results worth their own line: a control variate derived from finding 1
 (`sum(z^2-1)`) cuts estimator variance to **0.35**, while the textbook choice
@@ -100,7 +101,8 @@ All three modules built.
 |--------|--------------|
 | `hedge` | NumPy and C++ engines under tiered parity; GBM, Heston and Merton, each gated by an independent ground-truth price; four hedging schedules; a full P&L explain |
 | `surface` | Quasi-explicit SVI calibration under Durrleman, Lee and calendar constraints, with the implied density plotted |
-| `mm` | Avellaneda-Stoikov quoting against a never-skewed control on identical paths |
+| `mm` | Avellaneda-Stoikov and Gueant-Lehalle-Fernandez-Tapia quoting, both against a never-skewed control on identical paths |
+| `pricing/inverse` | Coin-margined options: closed-form price and greeks, gated by two independent pricing routes |
 
 Every finding is in [REPORT.md](REPORT.md), each with a test that fails if the engine
 is wrong and a command that regenerates it.
