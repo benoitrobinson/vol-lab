@@ -31,7 +31,11 @@ from vollab.metrics.variance_reduction import (
 from vollab.mm.quoting import DealerParams, MarketParams
 from vollab.mm.simulate import simulate_mm
 from vollab.paths.base import GBM, Merton
+from vollab.rng.scheme import normals_block
 from vollab.pricing.black_scholes import bs_price
+from vollab.pricing.inverse import (
+    fiat_delta_mismatch, inverse_payoff, inverse_price, share_measure_drift,
+)
 from vollab.surface.calibrate import calibrate_svi
 from vollab.surface.svi import SVIParams, durrleman_g, implied_vol
 
@@ -276,6 +280,38 @@ def f7_market_making(n_paths, seeds, gams=(0.01, 0.05, 0.1, 0.3, 1.0)):
     return out
 
 
+def f8_inverse_options(n_paths, seed):
+    """Coin-settled options, and what a converted vanilla delta costs."""
+    S0, K, T, r, q, sv = 100.0, 110.0, 0.5, 0.03, 0.0, 0.6
+    claim = float(inverse_price("call", S0, K, T, r, q, sv))
+
+    z = normals_block(seed, 0, n_paths, 1)[:, 0]
+    st_q = S0 * np.exp((r - q - 0.5 * sv ** 2) * T + sv * np.sqrt(T) * z)
+    dollar = np.exp(-r * T) * np.maximum(st_q - K, 0.0) / S0
+    mu = share_measure_drift(r, q, sv)
+    st_s = S0 * np.exp((mu - 0.5 * sv ** 2) * T + sv * np.sqrt(T) * z)
+    share = np.exp(-q * T) * inverse_payoff("call", st_s, K)
+    naive_expectation = float(inverse_payoff("call", st_q, K).mean())
+
+    spots = [60.0, 80.0, 110.0, 150.0, 220.0]
+    rows = []
+    for S in spots:
+        coin, naive, diff = fiat_delta_mismatch("call", S, K, T, r, q, sv)
+        rows.append({"spot": S, "coin_delta": float(coin),
+                     "naive_delta": float(naive), "gap": float(diff),
+                     "gap_pct": float(100.0 * diff / naive)})
+    return {
+        "contract": {"S0": S0, "K": K, "T": T, "r": r, "q": q, "vol": sv},
+        "coin_price": claim,
+        "dollar_route": {"mean": float(dollar.mean()),
+                         "se": float(dollar.std(ddof=1) / np.sqrt(n_paths))},
+        "share_route": {"mean": float(share.mean()),
+                        "se": float(share.std(ddof=1) / np.sqrt(n_paths))},
+        "naive_expectation": naive_expectation,
+        "mismatch": rows,
+    }
+
+
 def convergence(seeds):
     """Does the standard error of the mean fall as n^-1/2? It must."""
     rows = []
@@ -337,6 +373,7 @@ def main():
         "f5_schedules": f5_schedules(n_paths, seeds),
         "f6_surface": f6_surface(n_reps, seeds),
         "f7_market_making": f7_market_making(mm_paths, seeds),
+        "f8_inverse": f8_inverse_options(max(n_paths * 10, 40_000), seeds[0]),
         "convergence": convergence(seeds),
         "variance_reduction": variance_reduction_study(n_paths, seeds[0]),
     }

@@ -154,6 +154,30 @@ def blocks(f):
         f"The error bars matter here. Neighbouring risk aversions overlap, so the sweep\n"
         f"locates a region where skewing helps rather than an optimal value of gamma.")
 
+    d = f.get("f8_inverse")
+    if d:
+        rows = "\n".join(
+            f"| {r['spot']:.0f} | {r['coin_delta']:.6f} | {r['naive_delta']:.6f} | "
+            f"{r['gap']:+.6f} | {r['gap_pct']:.1f}% |" for r in d["mismatch"])
+        c8 = d["contract"]
+        out["f8"] = (
+            f"A coin-settled call, strike {c8['K']:.0f}, {c8['T']:.2f} years, "
+            f"{c8['vol']:.0%} volatility. Coin price\n**{d['coin_price']:.6f}**, confirmed "
+            f"by two independent routes:\n\n"
+            f"| route | estimate | separation |\n|---|---|---|\n"
+            f"| dollar payoff under Q, converted at spot | "
+            f"{d['dollar_route']['mean']:.6f} +/- {d['dollar_route']['se']:.6f} | "
+            f"{abs(d['dollar_route']['mean'] - d['coin_price']) / d['dollar_route']['se']:.2f} se |\n"
+            f"| coin payoff under the share measure | "
+            f"{d['share_route']['mean']:.6f} +/- {d['share_route']['se']:.6f} | "
+            f"{abs(d['share_route']['mean'] - d['coin_price']) / d['share_route']['se']:.2f} se |\n\n"
+            f"The naive quantity `E^Q[coin payoff]` is **{d['naive_expectation']:.6f}**, which is "
+            f"not a\nprice and is not close to one. Jensen separates them.\n\n"
+            f"Hedging error from converting a vanilla delta instead of differentiating the\n"
+            f"coin price:\n\n"
+            f"| spot | coin delta | converted vanilla | gap | gap |\n|---|---|---|---|---|\n"
+            f"{rows}")
+
     c, v = f["convergence"], f["variance_reduction"]
     out["numerics"] = (
         f"**Convergence.** Standard error of the mean against sample size:\n\n"

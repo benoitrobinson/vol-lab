@@ -159,3 +159,25 @@ def test_no_headline_number_is_absent_from_the_artifact():
         start = text.index(f"<!-- BEGIN:{marker} -->")
         end = text.index(f"<!-- END:{marker} -->")
         assert end - start > 80, f"block {marker} looks empty"
+
+
+def test_f8_inverse_is_confirmed_by_two_routes(f):
+    """Both pricing routes must land on the claim, and the naive expectation
+    must not, since it is the mistake the finding exists to flag."""
+    d = f.get("f8_inverse")
+    if d is None:
+        pytest.skip("regenerate: uv run python scripts/report.py")
+    claim = d["coin_price"]
+    for route in ("dollar_route", "share_route"):
+        sep = abs(d[route]["mean"] - claim) / d[route]["se"]
+        assert sep < 3.0, f"{route} is {sep:.1f} se from the claim"
+    assert abs(d["naive_expectation"] - claim) / claim > 0.2
+
+
+def test_f8_mismatch_grows_with_spot(f):
+    d = f.get("f8_inverse")
+    if d is None:
+        pytest.skip("regenerate: uv run python scripts/report.py")
+    pct = [abs(r["gap_pct"]) for r in d["mismatch"]]
+    assert pct == sorted(pct), "the converted-delta error should grow with spot"
+    assert max(pct) > 20.0
