@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import scipy
 
+from vollab.hedge.config import HedgeConfig
 from vollab.hedge.registry import build_config, paths_fingerprint_input
 from vollab.hedge.simulator import simulate
 from vollab.metrics.bootstrap import bootstrap_sd, paired_bootstrap
@@ -21,7 +22,10 @@ from vollab.pricing.black_scholes import (
 from vollab.protocol.hashing import config_hash
 from vollab.protocol.ledger import SCHEMA_VERSION, Ledger
 from vollab.protocol.prereg import HashMismatch, load_registered
-from vollab.render.charts import histogram
+from vollab.render.charts import density, histogram, smile
+from vollab.hedge.config import Contract, VolSpec
+from vollab.hedge.schedule import FixedTime
+from vollab.hedge.simulator import cpp_available
 from vollab.rng.scheme import RNG_SCHEME_VERSION
 
 VERSION = "0.1.0"
@@ -126,6 +130,133 @@ def _cmd_compare(a):
     return 0
 
 
+def _cmd_surface(a):
+    """Fit an SVI slice to a synthetic Heston smile and report its diagnostics."""
+    import numpy as np
+
+    from vollab.pricing.black_scholes import bs_implied_vol
+    from vollab.pricing.heston_cf import heston_price
+    from vollab.surface.calibrate import calibrate_svi
+    from vollab.surface.svi import implied_vol as svi_iv
+    from vollab.surface.svi import risk_neutral_density
+
+    S, r, q = 100.0, 0.0, 0.0
+    par = dict(v0=a.v0, kap_h=a.kappa, th_h=a.theta, xi=a.xi, rho=a.rho)
+    ks = np.linspace(-a.width, a.width, a.points)
+    iv = np.array([
+        bs_implied_vol("call", heston_price("call", S, S * np.exp(k), a.T, r, q, **par),
+                       S, S * np.exp(k), a.T, r, q)
+        for k in ks
+    ])
+    if a.noise > 0:
+        iv = iv + np.random.default_rng(a.seed).normal(0, a.noise / 100.0, iv.size)
+
+    p, _, diag = calibrate_svi(ks, iv, a.T, arb_free=not a.unconstrained)
+    fine = np.linspace(ks.min() * 1.4, ks.max() * 1.4, 240)
+
+    print(smile(ks, iv, fine, svi_iv(p, fine, a.T),
+                f"Heston smile, T={a.T}" + ("" if a.noise == 0 else f", {a.noise}bp noise")))
+    print(density(fine, risk_neutral_density(p, fine, a.T), "implied density"))
+    print(f"SVI  a={p.a:+.5f} b={p.b:.5f} rho={p.rho:+.4f} m={p.m:+.5f} sigma={p.sigma:.5f}")
+    print(f"fit  rmse {diag['rmse_vol_points']:.4f} vol pts   "
+          f"max err {diag['max_abs_err_vol_points']:.4f}")
+    print(f"arb  min Durrleman g {diag['min_durrleman_g']:+.3e}   "
+          f"wings {diag['wing_left']:.3f} / {diag['wing_right']:.3f} (Lee bound 2)")
+    if diag["min_durrleman_g"] < -1e-8:
+        print("WARNING: this slice implies a negative density", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_mm(a):
+    """Quote two-sided against a simulated mid, with and without inventory skew."""
+    import numpy as np
+
+    from vollab.metrics.bootstrap import paired_bootstrap
+    from vollab.mm.quoting import DealerParams, MarketParams
+    from vollab.mm.simulate import simulate_mm
+
+    market = MarketParams(sigma=a.sigma, A=a.A, kappa=a.kappa,
+                          T=a.T, n_steps=a.steps)
+    runs = {}
+    for strat in ("avellaneda_stoikov", "symmetric"):
+        runs[strat] = simulate_mm(market, DealerParams(gam=a.gam, max_inventory=a.cap),
+                                  strat, seed=a.seed, n_paths=a.paths)
+
+    hdr = f"{'strategy':22s} {'pnl':>9s} {'sd':>8s} {'ratio':>7s} {'|q| max':>8s} {'fills':>7s}"
+    print(hdr)
+    for name, r in runs.items():
+        print(f"{name:22s} {r.pnl.mean():9.3f} {r.pnl.std(ddof=1):8.3f} "
+              f"{r.pnl.mean() / r.pnl.std(ddof=1):7.3f} "
+              f"{r.inventory_max_abs.mean():8.2f} {r.n_fills.mean():7.1f}")
+
+    a_pnl = runs["avellaneda_stoikov"].pnl
+    s_pnl = runs["symmetric"].pnl
+    diff, lo, hi = paired_bootstrap(a_pnl, s_pnl, n_boot=2000)
+    print()
+    print(f"skew minus control, paired: {diff:+.3f}  95% CI [{lo:+.3f}, {hi:+.3f}]")
+    print(histogram(runs["avellaneda_stoikov"].inventory_end.astype(float),
+                    "end inventory, with skew", bins=41))
+    print(histogram(runs["symmetric"].inventory_end.astype(float),
+                    "end inventory, control", bins=41))
+    return 0
+
+
+def _cmd_view(a):
+    from vollab.tui.app import ViewerApp
+
+    if not LEDGER_PATH.exists():
+        print("no ledger here; run an experiment first", file=sys.stderr)
+        return 2
+    ViewerApp(LEDGER_PATH).run()
+    return 0
+
+
+def _cmd_bench(a):
+    """Two speedups, both reported.
+
+    The reference engine uses inverse-CDF normals so its stream can be matched
+    bit for bit in C++, and that costs about 3x against numpy's native
+    standard_normal. Quoting only the first number would compare C++ against a
+    deliberately handicapped baseline.
+    """
+    import time
+
+    if not cpp_available():
+        print("C++ extension not built; run: uv sync --reinstall-package vollab",
+              file=sys.stderr)
+        return 2
+
+    print(f"{'config':24s} {'reference':>10s} {'cpp':>10s} {'speedup':>9s} "
+          f"{'rel dPnL':>10s} {'d rehedge':>10s}")
+    for n_mon, every, n_paths in [(512, 1, a.paths), (512, 8, a.paths),
+                                  (2048, 4, a.paths)]:
+        base = dict(
+            contract=Contract("call", 100.0, 100.0, 1.0, 0.0, 0.0),
+            vols=VolSpec(0.3, 0.3, 0.3), schedule=FixedTime(every),
+            n_mon=n_mon, cost_bps=5.0, n_paths=n_paths, seed=1234,
+            chunk_paths=n_paths,
+        )
+        ref_full = simulate(HedgeConfig(**base))
+        t = time.time()
+        simulate(HedgeConfig(attribute=False, **base))
+        t_ref = time.time() - t
+        t = time.time()
+        cpp = simulate(HedgeConfig(**base), engine="cpp")
+        t_cpp = time.time() - t
+
+        scale = max(float(np.abs(ref_full.pnl).max()), 1.0)
+        d_pnl = float(np.abs(cpp.pnl - ref_full.pnl).max()) / scale
+        d_n = float(np.abs(cpp.n_rehedges - ref_full.n_rehedges).max())
+        print(f"n_mon={n_mon:<5d} every={every:<2d}      {t_ref:9.3f}s {t_cpp:9.3f}s "
+              f"{t_ref / t_cpp:8.1f}x {d_pnl:10.1e} {d_n:10.0f}")
+
+    print()
+    print("Timings compare equal work: the reference runs with attribution off,")
+    print("since the C++ engine computes P&L and rehedge counts only.")
+    return 0
+
+
 def _cmd_ledger(a):
     rows = Ledger(LEDGER_PATH).all()
     if not rows:
@@ -165,7 +296,41 @@ def main(argv=None):
     cp.add_argument("run_b")
     cp.set_defaults(fn=_cmd_compare)
 
-    lg = sub.add_parser("ledger", help="5. list recorded runs")
+    bn = sub.add_parser("bench", help="5. NumPy reference against the C++ engine")
+    bn.add_argument("--paths", type=int, default=20000)
+    bn.set_defaults(fn=_cmd_bench)
+
+    sf = sub.add_parser("surface", help="6. fit an SVI slice and check it for arbitrage")
+    sf.add_argument("--T", type=float, default=1.0)
+    sf.add_argument("--v0", type=float, default=0.06)
+    sf.add_argument("--kappa", type=float, default=2.0)
+    sf.add_argument("--theta", type=float, default=0.05)
+    sf.add_argument("--xi", type=float, default=0.5)
+    sf.add_argument("--rho", type=float, default=-0.6)
+    sf.add_argument("--width", type=float, default=0.4)
+    sf.add_argument("--points", type=int, default=15)
+    sf.add_argument("--noise", type=float, default=0.0, help="vol points of noise")
+    sf.add_argument("--seed", type=int, default=0)
+    sf.add_argument("--unconstrained", action="store_true",
+                    help="fit without the no-arbitrage constraints")
+    sf.set_defaults(fn=_cmd_surface)
+
+    mmp = sub.add_parser("mm", help="7. market making, with and without inventory skew")
+    mmp.add_argument("--gam", type=float, default=0.1, help="inventory risk aversion")
+    mmp.add_argument("--sigma", type=float, default=2.0)
+    mmp.add_argument("--A", type=float, default=140.0)
+    mmp.add_argument("--kappa", type=float, default=1.5)
+    mmp.add_argument("--T", type=float, default=1.0)
+    mmp.add_argument("--steps", type=int, default=200)
+    mmp.add_argument("--paths", type=int, default=4000)
+    mmp.add_argument("--cap", type=int, default=50)
+    mmp.add_argument("--seed", type=int, default=5)
+    mmp.set_defaults(fn=_cmd_mm)
+
+    vw = sub.add_parser("view", help="8. browse recorded runs in a TUI")
+    vw.set_defaults(fn=_cmd_view)
+
+    lg = sub.add_parser("ledger", help="9. list recorded runs")
     lg.set_defaults(fn=_cmd_ledger)
 
     a = p.parse_args(argv)

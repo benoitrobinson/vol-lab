@@ -1,12 +1,19 @@
 # vol-lab
 
-A Monte Carlo laboratory for the question an options market maker answers every day:
-what is my P&L if I sell an option and delta hedge it, and how does that P&L change
-with hedging frequency, transaction costs, and the process the underlying actually
-follows?
+A terminal laboratory for the three questions an options market maker answers every
+day: what does it cost me to hedge, is my surface a set of real prices, and where do I
+quote?
+
+- **hedge** - what is my P&L if I sell an option and delta hedge it, and how does it
+  change with hedging frequency, transaction costs, and the process the underlying
+  actually follows?
+- **surface** - does my fitted smile imply a probability distribution, or does it
+  quietly price butterflies negative?
+- **mm** - how hard should quotes lean against inventory?
 
 Every finding below is produced by a test that fails if the engine is wrong, and by a
-command you can run yourself.
+command you can run yourself. The full write-up, including the jump floor and the
+schedule comparison, is in [REPORT.md](REPORT.md).
 
 ## Findings
 
@@ -62,12 +69,18 @@ often as you can.
 
 ```sh
 uv sync
-uv run vl price --K 100 --T 1 --vol 0.3        # 1. Black-Scholes price and greeks
-uv run vl register configs/discretisation.toml # 2. stamp a config with its hash
-uv run vl run configs/discretisation.toml      # 3. run it, chart it, record it
-uv run vl ledger                               # 5. list recorded runs
-uv run pytest                                  # 214 tests
+uv run vl price --K 100 --T 1 --vol 0.3         # Black-Scholes price and greeks
+uv run vl register configs/discretisation.toml  # stamp a config with its hash
+uv run vl run configs/discretisation.toml       # run it, chart it, record it
+uv run vl bench                                 # NumPy reference against C++
+uv run vl surface --noise 1.5                   # fit a smile, check it for arbitrage
+uv run vl mm --gam 0.1                          # quote with and without inventory skew
+uv run vl view                                  # browse recorded runs
+uv run pytest
 ```
+
+Editing C++ needs `uv sync --reinstall-package vollab`; the editable rebuild hook is
+off deliberately, and `pyproject.toml` records why.
 
 ## How it stays honest
 
@@ -101,11 +114,16 @@ an engine against itself.
 
 ## Status
 
-Phase A part 1. The Python engine, GBM paths, four hedging schedules, the P&L explain,
-the protocol layer and the terminal charts are complete.
+All three modules built.
 
-Part 2 adds the C++ core with tiered engine parity, Heston and Merton dynamics with
-their ground-truth prices, the jump floor (F4), and the Textual viewer.
+| module | what it does |
+|--------|--------------|
+| `hedge` | NumPy and C++ engines under tiered parity; GBM, Heston and Merton, each gated by an independent ground-truth price; four hedging schedules; a full P&L explain |
+| `surface` | Quasi-explicit SVI calibration under Durrleman, Lee and calendar constraints, with the implied density plotted |
+| `mm` | Avellaneda-Stoikov quoting against a never-skewed control on identical paths |
+
+Every finding is in [REPORT.md](REPORT.md), each with a test that fails if the engine
+is wrong and a command that regenerates it.
 
 ## References
 

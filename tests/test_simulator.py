@@ -62,9 +62,16 @@ def test_turnover_is_non_negative():
     assert (simulate(cfg()).turnover >= 0).all()
 
 
-def test_cpp_engine_raises_rather_than_falling_back():
-    with pytest.raises(NotImplementedError):
-        simulate(cfg(), engine="cpp")
+def test_cpp_engine_never_silently_falls_back():
+    """Either it runs as cpp and says so, or it raises. Never numpy in disguise.
+    The tiered numerical comparison lives in tests/test_engine_parity.py."""
+    from vollab.hedge.simulator import cpp_available
+
+    if cpp_available():
+        assert simulate(cfg(), engine="cpp").engine_used == "cpp"
+    else:
+        with pytest.raises(NotImplementedError, match="not built"):
+            simulate(cfg(), engine="cpp")
 
 
 def test_unknown_engine_raises():
