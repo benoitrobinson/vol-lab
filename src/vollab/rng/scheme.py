@@ -40,3 +40,15 @@ def normals_block(seed, path_start, n_paths, n):
     for i in range(n_paths):
         out[i] = normals(seed, path_start + i, n)
     return out
+
+
+# Jump times and sizes come from a stream keyed by path alone, kept disjoint
+# from the diffusion stream by salting the seed.
+JUMP_STREAM_SALT = 0x9E3779B97F4A7C15
+
+
+def uniforms_block(seed, path_start, n_paths, n):
+    out = np.empty((n_paths, n), dtype=np.float64)
+    for i in range(n_paths):
+        out[i] = _uniforms(seed, path_start + i, n)
+    return out

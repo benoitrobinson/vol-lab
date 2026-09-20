@@ -13,7 +13,7 @@ import numpy as np
 
 from vollab.hedge.attribution import Accumulator, concat
 from vollab.hedge.config import HedgeResult
-from vollab.paths.gbm import gbm_paths
+from vollab.paths.base import GBM, generate
 from vollab.pricing.black_scholes import bs_delta, bs_gamma, bs_price, bs_theta
 from vollab.rng.scheme import RNG_SCHEME_VERSION
 
@@ -26,9 +26,9 @@ def _payoff(kind, S_T, K):
 
 
 def _chunk_paths(cfg, start, m):
-    c, v = cfg.contract, cfg.vols
-    return gbm_paths(c.S0, c.r, c.q, v.s_real, c.T, cfg.n_mon,
-                     cfg.seed, start, m, cfg.mu)
+    model = cfg.model if cfg.model is not None else GBM()
+    return generate(model, cfg.contract, cfg.vols, cfg.n_mon,
+                    cfg.seed, start, m, cfg.mu)
 
 
 def _run_on_paths(cfg, S, schedule):

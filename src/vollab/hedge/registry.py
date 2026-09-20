@@ -7,6 +7,7 @@ it without inheriting anything about hedging.
 
 from vollab.hedge.config import Contract, HedgeConfig, VolSpec
 from vollab.hedge.schedule import DeltaBand, FixedTime, Leland, WhalleyWilmott
+from vollab.paths.base import MODELS
 
 SCHEDULES = {
     "fixed_time": FixedTime,
@@ -15,7 +16,7 @@ SCHEDULES = {
     "whalley_wilmott": WhalleyWilmott,
 }
 
-PATH_KEYS = ("contract", "vols", "n_mon", "n_paths", "seed", "mu")
+PATH_KEYS = ("contract", "vols", "n_mon", "n_paths", "seed", "mu", "model")
 
 
 def build_config(d):
@@ -23,9 +24,13 @@ def build_config(d):
     name = spec.pop("name")
     if name not in SCHEDULES:
         raise ValueError(f"unknown schedule {name!r}; known: {sorted(SCHEDULES)}")
+    mspec = dict(d.get("model", {"name": "gbm"}))
+    mname = mspec.pop("name", "gbm")
+    if mname not in MODELS:
+        raise ValueError(f"unknown model {mname!r}; known: {sorted(MODELS)}")
     return HedgeConfig(
         contract=Contract(**d["contract"]), vols=VolSpec(**d["vols"]),
-        schedule=SCHEDULES[name](**spec),
+        schedule=SCHEDULES[name](**spec), model=MODELS[mname](**mspec),
         n_mon=d["n_mon"], cost_bps=d["cost_bps"], n_paths=d["n_paths"],
         seed=d["seed"], mu=d.get("mu"),
         chunk_paths=d.get("chunk_paths", 50_000),

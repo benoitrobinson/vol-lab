@@ -34,6 +34,7 @@ class HedgeConfig:
     cost_bps: float
     n_paths: int
     seed: int
+    model: object = None          # None means GBM; see paths.base
     mu: float | None = None
     chunk_paths: int = 50_000
     trace_paths: tuple[int, ...] = ()
