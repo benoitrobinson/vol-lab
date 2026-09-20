@@ -130,6 +130,76 @@ risk-adjusted objective bottoms at 65 rehedges, against 4.116 at the sparse end 
 12.521 at the dense end. At zero cost the curve is monotone and the advice is trivial,
 hedge as often as you can.
 
+## 6. An unconstrained smile fit implies negative probabilities
+
+SVI calibration to a short-dated smile, nine strikes, one month to expiry, fitted
+against a target slice verified arbitrage-free before any noise is added:
+
+| quote noise | unconstrained fits implying a negative density | constrained | refused | fit cost |
+|-------------|-----------------------------------------------|-------------|---------|----------|
+| 0.5 vol pts | 0 of 30 | 0 of 30 | 0 | -0.008 pts |
+| 1.5 vol pts | 3 of 30 | 0 of 30 | 0 | -0.021 pts |
+| 3.0 vol pts | 7 of 30 | 0 of 26 | 4 | -0.050 pts |
+
+The target admits a perfect fit, and with no noise the calibrator recovers all five
+parameters exactly. Add ordinary quote noise and roughly one fit in four starts to
+imply a risk-neutral density that goes negative somewhere in the wings. Such a slice
+prices a butterfly at a negative number: it is not a slightly worse fit, it is not a
+price at all.
+
+Imposing Durrleman's condition during the fit rather than checking it afterwards
+removes every violation, and the fit cost is negative. Being arbitrage-free is free
+here, because the constrained solve starts from an exact quasi-explicit solution and
+the constraint rules out only regions the data never justified.
+
+At the highest noise level, four of thirty noisy slices admit no arbitrage-free SVI
+fit at all. The calibrator refuses them rather than returning a slice that quietly is
+not a price.
+
+**A note on how this was measured.** An earlier version of this experiment used a
+target slice that was itself arbitrageable, and found 38 of 40 unconstrained fits
+implying negative density. That number measured nothing: the fits were faithfully
+reproducing an inadmissible target. The target above is checked for admissibility
+first, so the violations are caused by noise rather than inherited from the data.
+
+## 7. Inventory skew halves the dispersion of a market maker's P&L
+
+A dealer quotes two sides around a simulated mid for one session, fills arriving as a
+Poisson process whose intensity decays with distance from the mid. Two strategies on
+identical paths: quotes centred on the Avellaneda-Stoikov reservation price, against a
+control quoting the same total width but never skewed for inventory.
+
+| strategy | P&L | sd | peak abs inventory | end inventory sd | fills |
+|----------|-----|-----|--------------------|------------------|-------|
+| inventory skew | +64.96 | 6.74 | 4.0 | 2.96 | 97.0 |
+| symmetric control | +67.93 | 13.44 | 10.1 | 8.34 | 91.9 |
+
+Paired difference: **-2.97**, 95% interval **[-3.32, -2.62]**. The skew costs real money
+and buys more than it costs. Holding the width fixed between the two arms is what makes
+this attributable: the only difference is where the quotes are centred, not how wide
+they are.
+
+Sweeping risk aversion shows an interior optimum, which the control does not have:
+
+| risk aversion | skew ratio | control ratio | skew peak inventory | control peak inventory |
+|---------------|-----------|---------------|---------------------|------------------------|
+| 0.01 | 7.56 | 4.92 | 7.2 | 10.5 |
+| 0.05 | 9.43 | 4.97 | 4.8 | 10.3 |
+| 0.10 | **9.65** | 5.05 | 4.0 | 10.1 |
+| 0.30 | 9.09 | 5.07 | 3.0 | 9.1 |
+| 1.00 | 6.43 | 4.59 | 2.1 | 6.8 |
+
+Lean too little and inventory accumulates; lean too hard and the quotes are wide enough
+that the flow stops arriving, taking mean P&L from 68 down to 31. The control's ratio
+sits near 5.0 at every level, because widening a symmetric quote changes how much you
+earn without changing the shape of the risk.
+
+The sign of the skew is the whole mechanism. A long dealer must quote a *closer* ask
+and a *further* bid. Inverting it turns a stabiliser into an amplifier: the first
+version of this simulation had the sign backwards, and inventory pinned itself against
+the position limit on essentially every path while the naive control stayed bounded.
+That is what the control is for.
+
 ## Engines
 
 The reference engine is NumPy, vectorised over paths. A C++ core built with nanobind
