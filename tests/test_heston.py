@@ -53,3 +53,28 @@ def test_negative_correlation_produces_a_left_skew():
     from scipy.stats import skew
     P = heston_paths(100.0, 0.0, 0.0, 1.0, 256, 9, 0, 20_000, **FELLER_OK)
     assert skew(np.log(P[:, -1])) < 0
+
+
+def test_zero_vol_of_vol_uses_the_analytic_branch_without_warnings():
+    """The xi -> 0 limit is a removable singularity in the characteristic
+    function; adaptive quadrature cannot resolve it, so it is taken exactly."""
+    import warnings
+
+    from vollab.pricing.heston_cf import integrated_variance
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        px = heston_price("call", **MKT, v0=0.04, kap_h=2.0, th_h=0.04,
+                          xi=1e-6, rho=0.0)
+    assert np.isfinite(px)
+    assert abs(integrated_variance(0.04, 2.0, 0.04, 1.0) - 0.04) < 1e-12
+
+
+def test_mean_reverting_variance_prices_between_its_endpoints():
+    """v0 above the long-run level: the effective vol must sit between them."""
+    from vollab.pricing.black_scholes import bs_price
+    lo = bs_price("call", MKT["S"], MKT["K"], MKT["T"], MKT["r"], MKT["q"], 0.2)
+    hi = bs_price("call", MKT["S"], MKT["K"], MKT["T"], MKT["r"], MKT["q"], 0.3)
+    got = heston_price("call", **MKT, v0=0.09, kap_h=2.0, th_h=0.04,
+                       xi=1e-6, rho=0.0)
+    assert lo < got < hi

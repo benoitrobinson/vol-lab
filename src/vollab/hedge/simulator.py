@@ -44,6 +44,7 @@ def _run_on_paths(cfg, S, schedule):
     dt = c.T / cfg.n_mon
     s_h = schedule.hedge_vol(v.s_hedge, k, dt)
     acc = Accumulator(m)
+    attribute = getattr(cfg, "attribute", True)
 
     def mark(S_i, tau):
         if tau <= 0.0:
@@ -95,6 +96,9 @@ def _run_on_paths(cfg, S, schedule):
         mask_hash = np.where(traded, (mask_hash ^ np.uint64(i)) * _FNV_PRIME, mask_hash)
         held = held + d
 
+        if not attribute:
+            continue
+
         mark_now = mark(S_now, c.T - i * dt)
         realized = (cash + held * S_now - mark_now) - w_prev
 
@@ -120,18 +124,59 @@ def _assemble(parts):
     )
 
 
+def cpp_available():
+    try:
+        from vollab import _core  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def _check_engine(engine):
     if engine == "cpp":
-        raise NotImplementedError(
-            "C++ engine lands in Phase A part 2; refusing to fall back to numpy"
-        )
+        if not cpp_available():
+            raise NotImplementedError(
+                "C++ extension is not built; refusing to fall back to numpy. "
+                "Run: uv sync --reinstall-package vollab"
+            )
+        return
     if engine != "numpy":
         raise ValueError(f"unknown engine {engine!r}")
+
+
+def _simulate_cpp(cfg):
+    """Fast path. Supports GBM with a FixedTime schedule only; anything else
+    raises rather than quietly running the reference engine."""
+    from vollab import _core
+
+    from vollab.hedge.schedule import FixedTime
+
+    model = cfg.model if cfg.model is not None else GBM()
+    if not isinstance(model, GBM):
+        raise NotImplementedError(f"cpp engine supports GBM only, got {model.name}")
+    if not isinstance(cfg.schedule, FixedTime):
+        raise NotImplementedError("cpp engine supports FixedTime only")
+    if cfg.contract.kind != "call":
+        raise NotImplementedError("cpp engine supports calls only")
+
+    c, v = cfg.contract, cfg.vols
+    pnl, n_reh = _core.hedge_gbm(
+        c.S0, c.K, c.T, c.r, c.q, v.s_imp, v.s_hedge, v.s_real,
+        float("nan") if cfg.mu is None else cfg.mu, cfg.cost_bps,
+        cfg.n_mon, cfg.schedule.every, cfg.seed, 0, cfg.n_paths,
+    )
+    return HedgeResult(
+        pnl=pnl, n_rehedges=n_reh, turnover=np.zeros_like(pnl),
+        rehedge_mask_hash=np.zeros(pnl.size, dtype=np.uint64),
+        engine_used="cpp", rng_scheme_version=RNG_SCHEME_VERSION,
+    )
 
 
 def simulate(cfg, engine="numpy"):
     """Run one schedule over all paths."""
     _check_engine(engine)
+    if engine == "cpp":
+        return _simulate_cpp(cfg)
     parts = [[], [], [], [], []]
     for start in range(0, cfg.n_paths, cfg.chunk_paths):
         m = min(cfg.chunk_paths, cfg.n_paths - start)

@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import scipy
 
+from vollab.hedge.config import HedgeConfig
 from vollab.hedge.registry import build_config, paths_fingerprint_input
 from vollab.hedge.simulator import simulate
 from vollab.metrics.bootstrap import bootstrap_sd, paired_bootstrap
@@ -22,6 +23,9 @@ from vollab.protocol.hashing import config_hash
 from vollab.protocol.ledger import SCHEMA_VERSION, Ledger
 from vollab.protocol.prereg import HashMismatch, load_registered
 from vollab.render.charts import histogram
+from vollab.hedge.config import Contract, VolSpec
+from vollab.hedge.schedule import FixedTime
+from vollab.hedge.simulator import cpp_available
 from vollab.rng.scheme import RNG_SCHEME_VERSION
 
 VERSION = "0.1.0"
@@ -126,6 +130,61 @@ def _cmd_compare(a):
     return 0
 
 
+def _cmd_view(a):
+    from vollab.tui.app import ViewerApp
+
+    if not LEDGER_PATH.exists():
+        print("no ledger here; run an experiment first", file=sys.stderr)
+        return 2
+    ViewerApp(LEDGER_PATH).run()
+    return 0
+
+
+def _cmd_bench(a):
+    """Two speedups, both reported.
+
+    The reference engine uses inverse-CDF normals so its stream can be matched
+    bit for bit in C++, and that costs about 3x against numpy's native
+    standard_normal. Quoting only the first number would compare C++ against a
+    deliberately handicapped baseline.
+    """
+    import time
+
+    if not cpp_available():
+        print("C++ extension not built; run: uv sync --reinstall-package vollab",
+              file=sys.stderr)
+        return 2
+
+    print(f"{'config':24s} {'reference':>10s} {'cpp':>10s} {'speedup':>9s} "
+          f"{'rel dPnL':>10s} {'d rehedge':>10s}")
+    for n_mon, every, n_paths in [(512, 1, a.paths), (512, 8, a.paths),
+                                  (2048, 4, a.paths)]:
+        base = dict(
+            contract=Contract("call", 100.0, 100.0, 1.0, 0.0, 0.0),
+            vols=VolSpec(0.3, 0.3, 0.3), schedule=FixedTime(every),
+            n_mon=n_mon, cost_bps=5.0, n_paths=n_paths, seed=1234,
+            chunk_paths=n_paths,
+        )
+        ref_full = simulate(HedgeConfig(**base))
+        t = time.time()
+        simulate(HedgeConfig(attribute=False, **base))
+        t_ref = time.time() - t
+        t = time.time()
+        cpp = simulate(HedgeConfig(**base), engine="cpp")
+        t_cpp = time.time() - t
+
+        scale = max(float(np.abs(ref_full.pnl).max()), 1.0)
+        d_pnl = float(np.abs(cpp.pnl - ref_full.pnl).max()) / scale
+        d_n = float(np.abs(cpp.n_rehedges - ref_full.n_rehedges).max())
+        print(f"n_mon={n_mon:<5d} every={every:<2d}      {t_ref:9.3f}s {t_cpp:9.3f}s "
+              f"{t_ref / t_cpp:8.1f}x {d_pnl:10.1e} {d_n:10.0f}")
+
+    print()
+    print("Timings compare equal work: the reference runs with attribution off,")
+    print("since the C++ engine computes P&L and rehedge counts only.")
+    return 0
+
+
 def _cmd_ledger(a):
     rows = Ledger(LEDGER_PATH).all()
     if not rows:
@@ -165,7 +224,14 @@ def main(argv=None):
     cp.add_argument("run_b")
     cp.set_defaults(fn=_cmd_compare)
 
-    lg = sub.add_parser("ledger", help="5. list recorded runs")
+    bn = sub.add_parser("bench", help="5. NumPy reference against the C++ engine")
+    bn.add_argument("--paths", type=int, default=20000)
+    bn.set_defaults(fn=_cmd_bench)
+
+    vw = sub.add_parser("view", help="6. browse recorded runs in a TUI")
+    vw.set_defaults(fn=_cmd_view)
+
+    lg = sub.add_parser("ledger", help="7. list recorded runs")
     lg.set_defaults(fn=_cmd_ledger)
 
     a = p.parse_args(argv)

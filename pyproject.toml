@@ -7,19 +7,39 @@ requires-python = ">=3.14"
 dependencies = [
     "numpy>=2.5",
     "scipy>=1.18",
-    "plotext>=5.3,<6",   # 6.x is a breaking rewrite whose hist() is broken
+    "plotext>=5.3,<6",
+    "textual>=0.80",   # 6.x is a breaking rewrite whose hist() is broken
 ]
 
 [project.scripts]
 vl = "vollab.cli:main"
 
 [build-system]
-requires = ["uv_build>=0.11,<0.12"]
-build-backend = "uv_build"
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+minimum-version = "0.10"
+build-dir = "build/{wheel_tag}"
+wheel.packages = ["src/vollab"]
+# Makefiles rather than Ninja: the editable rebuild hook reuses the CMake cache,
+# and a Ninja path inside a build-isolation temp dir is gone by then.
+cmake.args = ["-G", "Unix Makefiles"]
+
+[tool.scikit-build.editable]
+# Off deliberately. The rebuild-on-import hook reuses the CMake cache, which
+# records the interpreter and generator paths from the build-isolation temp
+# directory; both are gone by import time, so every import fails. After editing
+# C++, run: uv sync --reinstall-package vollab
+rebuild = false
 
 [dependency-groups]
 dev = [
     "pytest>=9.1",
     "hypothesis>=6.168",
+    "pytest-asyncio>=0.24",
     "tomli-w>=1.0",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

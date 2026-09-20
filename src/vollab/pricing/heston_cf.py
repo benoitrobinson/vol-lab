@@ -29,17 +29,44 @@ def _phi(u, j, S, T, r, q, v0, kap_h, th_h, xi, rho):
     return np.exp(C + D * v0 + iu * np.log(S))
 
 
-def _P(j, S, K, T, r, q, v0, kap_h, th_h, xi, rho, limit=200):
+def _P(j, S, K, T, r, q, v0, kap_h, th_h, xi, rho, limit=400):
     def integrand(u):
         val = np.exp(-1j * u * np.log(K)) * _phi(u, j, S, T, r, q, v0,
                                                  kap_h, th_h, xi, rho) / (1j * u)
         return val.real
 
-    val, _ = quad(integrand, 1e-10, 200.0, limit=limit)
-    return 0.5 + val / np.pi
+    # The integrand oscillates near the origin and decays fast, so it is split
+    # rather than handed to one adaptive call, which cannot meet its tolerance
+    # across both regions and warns.
+    total = 0.0
+    for lo, hi in ((1e-10, 1.0), (1.0, 20.0), (20.0, 200.0)):
+        part, _ = quad(integrand, lo, hi, limit=limit)
+        total += part
+    return 0.5 + total / np.pi
+
+
+def integrated_variance(v0, kap_h, th_h, T):
+    """Integral of the deterministic variance path over [0, T]."""
+    return th_h * T + (v0 - th_h) * (1.0 - np.exp(-kap_h * T)) / kap_h
+
+
+XI_FLOOR = 1e-4
 
 
 def heston_price(kind, S, K, T, r, q, v0, kap_h, th_h, xi, rho):
+    if xi < XI_FLOOR:
+        # Zero vol-of-vol leaves a deterministic variance path, so the price is
+        # Black-Scholes at the root mean integrated variance. Taking this branch
+        # analytically avoids a removable singularity in the characteristic
+        # function that adaptive quadrature cannot resolve.
+        from vollab.pricing.black_scholes import bs_price
+
+        s_eff = np.sqrt(integrated_variance(v0, kap_h, th_h, T) / T)
+        return bs_price(kind, S, K, T, r, q, s_eff)
+    return _heston_price_cf(kind, S, K, T, r, q, v0, kap_h, th_h, xi, rho)
+
+
+def _heston_price_cf(kind, S, K, T, r, q, v0, kap_h, th_h, xi, rho):
     p1 = _P(1, S, K, T, r, q, v0, kap_h, th_h, xi, rho)
     p2 = _P(2, S, K, T, r, q, v0, kap_h, th_h, xi, rho)
     call = S * np.exp(-q * T) * p1 - K * np.exp(-r * T) * p2

@@ -35,6 +35,7 @@ class HedgeConfig:
     n_paths: int
     seed: int
     model: object = None          # None means GBM; see paths.base
+    attribute: bool = True        # False skips the P&L explain, for fair benchmarking
     mu: float | None = None
     chunk_paths: int = 50_000
     trace_paths: tuple[int, ...] = ()
