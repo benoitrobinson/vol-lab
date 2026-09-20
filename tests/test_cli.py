@@ -1,4 +1,5 @@
 import tomllib
+from pathlib import Path
 
 import tomli_w
 
@@ -143,3 +144,28 @@ def test_view_refuses_when_no_ledger_exists(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert main(["view"]) == 2
     assert "no ledger" in capsys.readouterr().err
+
+
+def test_ledger_path_defaults_to_the_working_directory(monkeypatch):
+    from vollab.cli import ledger_path
+    monkeypatch.delenv("VOLLAB_HOME", raising=False)
+    assert ledger_path() == Path(".vollab") / "ledger.db"
+
+
+def test_vollab_home_overrides_the_ledger_location(tmp_path, monkeypatch):
+    """So `vl` on the PATH collects runs in one place rather than scattering
+    a ledger into every directory it is invoked from."""
+    from vollab.cli import ledger_path
+    monkeypatch.setenv("VOLLAB_HOME", str(tmp_path / "lab"))
+    assert ledger_path() == tmp_path / "lab" / "ledger.db"
+
+
+def test_run_writes_to_vollab_home_when_set(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    home = tmp_path / "central"
+    monkeypatch.setenv("VOLLAB_HOME", str(home))
+    p = _write(tmp_path)
+    assert main(["register", str(p)]) == 0
+    assert main(["run", str(p)]) == 0
+    assert (home / "ledger.db").exists()
+    assert not (tmp_path / ".vollab").exists()

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -29,7 +30,19 @@ from vollab.hedge.simulator import cpp_available
 from vollab.rng.scheme import RNG_SCHEME_VERSION
 
 VERSION = "0.1.0"
-LEDGER_PATH = Path(".vollab") / "ledger.db"
+
+
+def ledger_path():
+    """Where runs are recorded.
+
+    Defaults to `.vollab/` in the working directory, which keeps a project's
+    experiments beside it. Set VOLLAB_HOME to collect every run in one place
+    instead, which is what you want when `vl` is on your PATH and invoked from
+    wherever you happen to be standing.
+    """
+    home = os.environ.get("VOLLAB_HOME")
+    return (Path(home).expanduser() / "ledger.db" if home
+            else Path(".vollab") / "ledger.db")
 
 
 def _git(*args, default=""):
@@ -94,7 +107,7 @@ def _cmd_run(a):
         print(f"hypothesis: {d['hypothesis']}")
     finally:
         diff = _git("diff")
-        Ledger(LEDGER_PATH).insert(dict(
+        Ledger(ledger_path()).insert(dict(
             run_id=run_id, schema_version=SCHEMA_VERSION,
             ts=time.strftime("%Y-%m-%dT%H:%M:%S"), config_hash=config_hash(d),
             config_toml=Path(a.config).read_text(), hypothesis=d["hypothesis"],
@@ -115,7 +128,7 @@ def _cmd_run(a):
 
 
 def _cmd_compare(a):
-    led = Ledger(LEDGER_PATH)
+    led = Ledger(ledger_path())
     ra, rb = led.get(a.run_a), led.get(a.run_b)
     if ra is None or rb is None:
         print("refused: unknown run id", file=sys.stderr)
@@ -223,10 +236,10 @@ def _cmd_mm(a):
 def _cmd_view(a):
     from vollab.tui.app import ViewerApp
 
-    if not LEDGER_PATH.exists():
+    if not ledger_path().exists():
         print("no ledger here; run an experiment first", file=sys.stderr)
         return 2
-    ViewerApp(LEDGER_PATH).run()
+    ViewerApp(ledger_path()).run()
     return 0
 
 
@@ -284,7 +297,7 @@ def _cmd_bench(a):
 
 
 def _cmd_ledger(a):
-    rows = Ledger(LEDGER_PATH).all()
+    rows = Ledger(ledger_path()).all()
     if not rows:
         print("no runs recorded")
         return 0
