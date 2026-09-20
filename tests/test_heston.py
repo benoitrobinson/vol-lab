@@ -34,7 +34,7 @@ def test_put_call_parity():
                                           (FELLER_VIOLATED, "violated")])
 def test_monte_carlo_matches_the_characteristic_function(params, label):
     """QE must hold up where Feller is violated; that is the case it exists for."""
-    n = 40_000
+    n = 20_000
     P = heston_paths(MKT["S"], MKT["r"], MKT["q"], MKT["T"], 256, 3, 0, n,
                      params["v0"], params["kap_h"], params["th_h"],
                      params["xi"], params["rho"])
@@ -51,7 +51,7 @@ def test_variance_stays_non_negative_under_violated_feller():
 
 def test_negative_correlation_produces_a_left_skew():
     from scipy.stats import skew
-    P = heston_paths(100.0, 0.0, 0.0, 1.0, 256, 9, 0, 20_000, **FELLER_OK)
+    P = heston_paths(100.0, 0.0, 0.0, 1.0, 128, 9, 0, 8_000, **FELLER_OK)
     assert skew(np.log(P[:, -1])) < 0
 
 

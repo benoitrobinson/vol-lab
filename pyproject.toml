@@ -44,3 +44,12 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# The findings are research sweeps: thousands of paths across a frequency grid.
+# They belong in the suite, but not in the one you run every few minutes.
+#   uv run pytest            correctness, fast
+#   uv run pytest -m slow    reproduce the findings
+#   uv run pytest -m ""      everything
+addopts = "-m 'not slow'"
+markers = [
+    "slow: reproduces a finding at research sample size (minutes, not seconds)",
+]

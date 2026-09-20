@@ -22,8 +22,13 @@ jobs:
       - name: The C++ engine must be present, not skipped
         run: uv run python -c "from vollab import _core; print(_core.uniforms(7, 0, 3))"
 
-      - name: Test suite
+      - name: Test suite, correctness
         run: uv run pytest -q
+
+      - name: Test suite, findings
+        # The research sweeps. Excluded from the default run because they take
+        # minutes; never excluded from CI, because they are what the report claims.
+        run: uv run pytest -q -m slow
 
       - name: REPORT.md must match the committed artifact
         run: uv run pytest tests/test_report_matches.py -q

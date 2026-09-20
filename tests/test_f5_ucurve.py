@@ -1,6 +1,9 @@
 import numpy as np
 import pytest
 
+# Research sweep: see the slow marker in pyproject.toml.
+pytestmark = pytest.mark.slow
+
 from vollab.hedge.config import Contract, HedgeConfig, VolSpec
 from vollab.hedge.schedule import FixedTime
 from vollab.metrics.stats import cost_curve

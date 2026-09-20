@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from vollab.hedge.config import Contract, HedgeConfig, VolSpec
 from vollab.hedge.schedule import FixedTime
@@ -12,7 +13,7 @@ def cfg(**kw):
     base = dict(
         contract=Contract("call", 100.0, 100.0, 1.0, 0.0, 0.0),
         vols=VolSpec(0.3, 0.3, 0.3), schedule=FixedTime(1),
-        n_mon=512, cost_bps=0.0, n_paths=4000, seed=5, chunk_paths=1000,
+        n_mon=256, cost_bps=0.0, n_paths=2000, seed=5, chunk_paths=1000,
     )
     base.update(kw)
     return HedgeConfig(**base)
@@ -21,7 +22,7 @@ def cfg(**kw):
 def test_components_have_path_shape():
     a = simulate(cfg()).attribution
     for name in FIELDS:
-        assert getattr(a, name).shape == (4000,)
+        assert getattr(a, name).shape == (2000,)
 
 
 def test_vega_is_identically_zero_in_phase_a():
@@ -50,6 +51,7 @@ def test_residual_is_small_relative_to_gamma_under_gbm():
     assert _residual_ratio(512) < 0.05
 
 
+@pytest.mark.slow
 def test_residual_scales_as_sqrt_dt():
     """The test with real power. Third-order terms vanish as the grid refines;
     a first-order bug (a mislabelled carry or an unattributed cost) would leave

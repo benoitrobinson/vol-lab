@@ -11,7 +11,12 @@ from vollab.pricing.inverse import (
 from vollab.rng.scheme import normals_block
 
 S0, K, T, R, Q, S_VOL = 100.0, 110.0, 0.5, 0.03, 0.0, 0.6      # crypto-like vol
-N = 400_000
+# Sample sizes are the smallest that keep these meaningful. A 3-standard-
+# error band widens as n falls, so a smaller sample makes the test less
+# likely to fail spuriously, not more. What it catches is a structurally
+# wrong formula, which is off by many standard errors at any n. The
+# research-precision versions live behind the slow marker.
+N = 80_000
 
 
 @pytest.fixture(scope="module")

@@ -107,7 +107,7 @@ def test_ledger_lists_runs(tmp_path, monkeypatch, capsys):
 
 def test_bench_runs_or_reports_a_missing_extension(capsys):
     from vollab.hedge.simulator import cpp_available
-    rc = main(["bench", "--paths", "500", "--repeats", "1"])
+    rc = main(["bench", "--paths", "300", "--repeats", "1"])
     out = capsys.readouterr()
     if cpp_available():
         assert rc == 0

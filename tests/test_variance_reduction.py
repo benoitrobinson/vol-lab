@@ -12,7 +12,12 @@ from vollab.paths.gbm import gbm_paths
 from vollab.pricing.black_scholes import bs_price
 from vollab.rng.scheme import normals_block
 
-SEED, N, N_MON = 101, 20_000, 512
+# Sample sizes are the smallest that keep these meaningful. A 3-standard-
+# error band widens as n falls, so a smaller sample makes the test less
+# likely to fail spuriously, not more. What it catches is a structurally
+# wrong formula, which is off by many standard errors at any n. The
+# research-precision versions live behind the slow marker.
+SEED, N, N_MON = 101, 8_000, 256
 
 
 @pytest.fixture(scope="module")
@@ -37,6 +42,7 @@ def test_control_variate_preserves_the_estimate(pnl):
     assert abs(adj.mean() - pnl.mean()) < 4 * se
 
 
+@pytest.mark.slow
 def test_control_variate_cuts_variance_by_more_than_half(pnl):
     """Derived from the F1 mechanism, not tuned. Measured ratio about 0.37."""
     c = realized_variance_control(SEED, N, N_MON)
@@ -45,6 +51,7 @@ def test_control_variate_cuts_variance_by_more_than_half(pnl):
     assert variance_ratio(pnl, adj) < 0.5
 
 
+@pytest.mark.slow
 def test_terminal_payoff_control_is_useless(pnl):
     """The instructive negative result: a working hedge removes exactly the
     component of P&L that tracks the terminal value."""

@@ -13,6 +13,9 @@ Measured on 6,000 paths, a 1,024-step grid:
 import numpy as np
 import pytest
 
+# Research sweep: see the slow marker in pyproject.toml.
+pytestmark = pytest.mark.slow
+
 from vollab.hedge.config import Contract, HedgeConfig, VolSpec
 from vollab.hedge.schedule import FixedTime
 from vollab.hedge.simulator import simulate

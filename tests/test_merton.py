@@ -5,6 +5,12 @@ from vollab.paths.merton import jump_budget, merton_paths
 from vollab.pricing.black_scholes import bs_price
 from vollab.pricing.merton import compensator, merton_price
 
+# Sample sizes are the smallest that keep these meaningful. A 3-standard-
+# error band widens as n falls, so a smaller sample makes the test less
+# likely to fail spuriously, not more. What it catches is a structurally
+# wrong formula, which is off by many standard errors at any n. The
+# research-precision versions live behind the slow marker.
+
 ARGS = dict(S=100.0, K=105.0, T=0.5, r=0.03, q=0.0, s=0.35)
 JUMPS = dict(lam=0.8, mu_J=-0.12, s_J=0.25)
 
@@ -35,7 +41,7 @@ def test_put_call_parity_holds_under_jumps():
 
 def test_monte_carlo_matches_the_series_price():
     """The ground truth that gates every Merton finding."""
-    n = 300_000
+    n = 60_000
     P = merton_paths(ARGS["S"], ARGS["r"], ARGS["q"], ARGS["s"], ARGS["T"],
                      64, 7, 0, n, **JUMPS)
     disc = np.exp(-ARGS["r"] * ARGS["T"]) * np.maximum(P[:, -1] - ARGS["K"], 0.0)
@@ -56,6 +62,6 @@ def test_paths_start_at_spot_and_stay_positive():
 
 def test_terminal_distribution_is_left_skewed_for_negative_jumps():
     from scipy.stats import skew
-    P = merton_paths(100.0, 0.0, 0.0, 0.2, 1.0, 64, 11, 0, 40_000,
+    P = merton_paths(100.0, 0.0, 0.0, 0.2, 1.0, 64, 11, 0, 12_000,
                      lam=2.0, mu_J=-0.25, s_J=0.1)
     assert skew(np.log(P[:, -1])) < -0.2

@@ -36,12 +36,14 @@ def test_static_hedge_trades_exactly_twice():
     assert (r.n_rehedges == 2).all()
 
 
+@pytest.mark.slow
 def test_perfect_hedge_mean_pnl_is_zero():
     r = simulate(cfg(n_mon=512, n_paths=40_000, chunk_paths=10_000))
     se = r.pnl.std(ddof=1) / np.sqrt(r.pnl.size)
     assert abs(r.pnl.mean()) < 3 * se
 
 
+@pytest.mark.slow
 def test_more_frequent_hedging_reduces_dispersion():
     coarse = simulate(cfg(n_mon=512, schedule=FixedTime(64), n_paths=8000))
     fine = simulate(cfg(n_mon=512, schedule=FixedTime(1), n_paths=8000))
@@ -79,6 +81,7 @@ def test_unknown_engine_raises():
         simulate(cfg(), engine="fortran")
 
 
+@pytest.mark.slow
 def test_hedging_collapses_dispersion_versus_naked_short():
     """The test that catches a delta sign error.
 

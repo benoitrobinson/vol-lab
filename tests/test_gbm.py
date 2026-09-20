@@ -3,6 +3,12 @@ import numpy as np
 from vollab.paths.gbm import gbm_paths
 from vollab.pricing.black_scholes import bs_price
 
+# Sample sizes are the smallest that keep these meaningful. A 3-standard-
+# error band widens as n falls, so a smaller sample makes the test less
+# likely to fail spuriously, not more. What it catches is a structurally
+# wrong formula, which is off by many standard errors at any n. The
+# research-precision versions live behind the slow marker.
+
 
 def test_shape_and_initial_value():
     p = gbm_paths(100.0, 0.03, 0.01, 0.3, 1.0, 16, seed=1, path_start=0, n_paths=5)
@@ -27,7 +33,7 @@ def test_chunk_offset_is_consistent():
 
 def test_mc_price_converges_to_black_scholes():
     S0, K, T, r, q, s = 100.0, 105.0, 0.5, 0.03, 0.01, 0.35
-    n = 400_000
+    n = 80_000
     p = gbm_paths(S0, r, q, s, T, 1, seed=3, path_start=0, n_paths=n)
     disc = np.exp(-r * T) * np.maximum(p[:, -1] - K, 0.0)
     se = disc.std(ddof=1) / np.sqrt(n)

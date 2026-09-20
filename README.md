@@ -42,6 +42,12 @@ driving normal.
 
 ## Run it
 
+`vl view` is the main panel. It opens on the lessons, and every tool lives inside it:
+the eight findings with their charts and measured numbers, an interactive pricer, SVI
+calibration with the implied density plotted, a hedging experiment, the three quoting
+strategies, the engine benchmark, and the run ledger. Press `r` to re-run the current
+tab, `q` to quit.
+
 ```sh
 uv sync
 uv run vl price --K 100 --T 1 --vol 0.3         # Black-Scholes price and greeks
@@ -50,8 +56,10 @@ uv run vl run configs/discretisation.toml       # run it, chart it, record it
 uv run vl bench                                 # NumPy reference against C++
 uv run vl surface --noise 1.5                   # fit a smile, check it for arbitrage
 uv run vl mm --gam 0.1                          # quote with and without inventory skew
-uv run vl view                                  # browse recorded runs
-uv run pytest                                   # 328 tests
+uv run vl view                                  # open the lab: lessons, charts, tools
+uv run pytest                                   # correctness, 2m47s measured
+uv run pytest -m slow                           # reproduce the findings
+uv run pytest -m ""                             # everything
 uv run python scripts/report.py                 # regenerates every number
 uv run python scripts/render_report.py          # fills REPORT.md
 uv run python scripts/figures.py                # redraws figures/
