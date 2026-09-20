@@ -6,7 +6,8 @@ with hedging frequency, transaction costs, and the process the underlying actual
 follows?
 
 Every finding below is produced by a test that fails if the engine is wrong, and by a
-command you can run yourself.
+command you can run yourself. The full write-up, including the jump floor and the
+schedule comparison, is in [REPORT.md](REPORT.md).
 
 ## Findings
 
@@ -101,11 +102,12 @@ an engine against itself.
 
 ## Status
 
-Phase A part 1. The Python engine, GBM paths, four hedging schedules, the P&L explain,
-the protocol layer and the terminal charts are complete.
+Phase A complete. The NumPy engine, a C++ core behind tiered parity, GBM, Heston and
+Merton dynamics with independent ground-truth prices, four hedging schedules, the P&L
+explain, the protocol layer, terminal charts and a read-only TUI viewer.
 
-Part 2 adds the C++ core with tiered engine parity, Heston and Merton dynamics with
-their ground-truth prices, the jump floor (F4), and the Textual viewer.
+Phase B adds `surface`: SVI and SSVI calibration to a volatility smile with
+no-arbitrage constraints. Phase C adds `mm`: two-sided quoting with inventory risk.
 
 ## References
 
