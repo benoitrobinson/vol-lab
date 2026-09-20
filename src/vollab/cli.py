@@ -22,7 +22,7 @@ from vollab.pricing.black_scholes import (
 from vollab.protocol.hashing import config_hash
 from vollab.protocol.ledger import SCHEMA_VERSION, Ledger
 from vollab.protocol.prereg import HashMismatch, load_registered
-from vollab.render.charts import histogram
+from vollab.render.charts import density, histogram, smile
 from vollab.hedge.config import Contract, VolSpec
 from vollab.hedge.schedule import FixedTime
 from vollab.hedge.simulator import cpp_available
@@ -130,6 +130,44 @@ def _cmd_compare(a):
     return 0
 
 
+def _cmd_surface(a):
+    """Fit an SVI slice to a synthetic Heston smile and report its diagnostics."""
+    import numpy as np
+
+    from vollab.pricing.black_scholes import bs_implied_vol
+    from vollab.pricing.heston_cf import heston_price
+    from vollab.surface.calibrate import calibrate_svi
+    from vollab.surface.svi import implied_vol as svi_iv
+    from vollab.surface.svi import risk_neutral_density
+
+    S, r, q = 100.0, 0.0, 0.0
+    par = dict(v0=a.v0, kap_h=a.kappa, th_h=a.theta, xi=a.xi, rho=a.rho)
+    ks = np.linspace(-a.width, a.width, a.points)
+    iv = np.array([
+        bs_implied_vol("call", heston_price("call", S, S * np.exp(k), a.T, r, q, **par),
+                       S, S * np.exp(k), a.T, r, q)
+        for k in ks
+    ])
+    if a.noise > 0:
+        iv = iv + np.random.default_rng(a.seed).normal(0, a.noise / 100.0, iv.size)
+
+    p, _, diag = calibrate_svi(ks, iv, a.T, arb_free=not a.unconstrained)
+    fine = np.linspace(ks.min() * 1.4, ks.max() * 1.4, 240)
+
+    print(smile(ks, iv, fine, svi_iv(p, fine, a.T),
+                f"Heston smile, T={a.T}" + ("" if a.noise == 0 else f", {a.noise}bp noise")))
+    print(density(fine, risk_neutral_density(p, fine, a.T), "implied density"))
+    print(f"SVI  a={p.a:+.5f} b={p.b:.5f} rho={p.rho:+.4f} m={p.m:+.5f} sigma={p.sigma:.5f}")
+    print(f"fit  rmse {diag['rmse_vol_points']:.4f} vol pts   "
+          f"max err {diag['max_abs_err_vol_points']:.4f}")
+    print(f"arb  min Durrleman g {diag['min_durrleman_g']:+.3e}   "
+          f"wings {diag['wing_left']:.3f} / {diag['wing_right']:.3f} (Lee bound 2)")
+    if diag["min_durrleman_g"] < -1e-8:
+        print("WARNING: this slice implies a negative density", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_view(a):
     from vollab.tui.app import ViewerApp
 
@@ -228,10 +266,25 @@ def main(argv=None):
     bn.add_argument("--paths", type=int, default=20000)
     bn.set_defaults(fn=_cmd_bench)
 
-    vw = sub.add_parser("view", help="6. browse recorded runs in a TUI")
+    sf = sub.add_parser("surface", help="6. fit an SVI slice and check it for arbitrage")
+    sf.add_argument("--T", type=float, default=1.0)
+    sf.add_argument("--v0", type=float, default=0.06)
+    sf.add_argument("--kappa", type=float, default=2.0)
+    sf.add_argument("--theta", type=float, default=0.05)
+    sf.add_argument("--xi", type=float, default=0.5)
+    sf.add_argument("--rho", type=float, default=-0.6)
+    sf.add_argument("--width", type=float, default=0.4)
+    sf.add_argument("--points", type=int, default=15)
+    sf.add_argument("--noise", type=float, default=0.0, help="vol points of noise")
+    sf.add_argument("--seed", type=int, default=0)
+    sf.add_argument("--unconstrained", action="store_true",
+                    help="fit without the no-arbitrage constraints")
+    sf.set_defaults(fn=_cmd_surface)
+
+    vw = sub.add_parser("view", help="7. browse recorded runs in a TUI")
     vw.set_defaults(fn=_cmd_view)
 
-    lg = sub.add_parser("ledger", help="7. list recorded runs")
+    lg = sub.add_parser("ledger", help="8. list recorded runs")
     lg.set_defaults(fn=_cmd_ledger)
 
     a = p.parse_args(argv)

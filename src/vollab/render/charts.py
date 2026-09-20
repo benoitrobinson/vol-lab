@@ -66,3 +66,33 @@ def sparkline(y, title):
     span = (hi - lo) or 1.0
     line = "".join(_BLOCKS[int((v - lo) / span * (len(_BLOCKS) - 1))] for v in y)
     return f"{title}\n{line}\n[{lo:.4g} .. {hi:.4g}]"
+
+
+def smile(k_mkt, iv_mkt, k_fit, iv_fit, title):
+    """Market points against a fitted slice, in volatility points."""
+    p = _plt()
+    if p is None:
+        return sparkline(np.asarray(iv_fit), title)
+    p.clf()
+    p.title(title)
+    p.scatter(np.asarray(k_mkt, float).tolist(),
+              (np.asarray(iv_mkt, float) * 100).tolist(), label="market")
+    p.plot(np.asarray(k_fit, float).tolist(),
+           (np.asarray(iv_fit, float) * 100).tolist(), marker="braille", label="SVI")
+    p.xlabel("log-moneyness")
+    p.ylabel("implied vol %")
+    return p.build()
+
+
+def density(k, dens, title):
+    """Risk-neutral density implied by a slice. Dipping below zero is arbitrage."""
+    p = _plt()
+    if p is None:
+        return sparkline(np.asarray(dens), title)
+    p.clf()
+    p.title(title)
+    p.plot(np.asarray(k, float).tolist(), np.asarray(dens, float).tolist(),
+           marker="braille", label="density")
+    p.plot(np.asarray(k, float).tolist(), [0.0] * len(k), marker="dot", label="zero")
+    p.xlabel("log-moneyness")
+    return p.build()
