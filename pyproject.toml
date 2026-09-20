@@ -1,0 +1,25 @@
+[project]
+name = "vollab"
+version = "0.1.0"
+description = "Monte Carlo delta-hedging laboratory"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "numpy>=2.5",
+    "scipy>=1.18",
+    "plotext>=5.3,<6",   # 6.x is a breaking rewrite whose hist() is broken
+]
+
+[project.scripts]
+vl = "vollab.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1",
+    "hypothesis>=6.168",
+    "tomli-w>=1.0",
+]
