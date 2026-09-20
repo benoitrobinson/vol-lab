@@ -17,53 +17,27 @@ schedule comparison, is in [REPORT.md](REPORT.md).
 
 ## Findings
 
-Measured on 8,000 paths, a 2,048-step monitoring grid, a one-year at-the-money call.
+Seven findings, each with a test that fails if the engine is wrong and a command that
+regenerates it. Numbers below are means over 5 seeds; the full write-up with
+uncertainties, figures and stated limitations is in [REPORT.md](REPORT.md).
 
-**F1. Discretisation error falls as the inverse square root of hedging frequency.**
+| | finding | headline |
+|---|---|---|
+| 1 | Hedging error falls as the inverse square root of frequency | slope **-0.4987 +/- 0.0024** against theory -0.5 |
+| 2 | Hedging at realized vol locks in the edge; at implied it earns the same mean far less reliably | same mean, several times the dispersion |
+| 3 | The P&L explain closes; the residual measures what hedging cannot see | residual is third order, halving per fourfold refinement |
+| 4 | Jumps floor the hedging error at a level frequency cannot reach | GBM **-0.499**, Merton **-0.087** |
+| 5 | Under costs the optimum is a band, not a frequency | the band trades far less for a better mean |
+| 6 | An unconstrained smile fit implies negative probabilities | up to 12 of 30 fits, removed at a cost of 0.08 vol points |
+| 7 | Inventory skew halves a market maker's P&L dispersion | interior optimum, separated by 6+ standard errors |
 
-```
-fitted log-log slope   -0.5029        theory -0.5
-sd(PnL) at 9 rehedges   3.5511
-sd(PnL) at 2037         0.2305
-```
+Two numerical results worth their own line: a control variate derived from finding 1
+(`sum(z^2-1)`) cuts estimator variance to **0.35**, while the textbook choice
+of the terminal payoff correlates at only -0.030 and buys nothing, and
+antithetic sampling provably cannot help at all because the hedging error is even in the
+driving normal.
 
-This is the Boyle and Emanuel (1980) result and it is the engine's primary
-correctness test. Freezing gamma over a step, the per-step error is
-`0.5 * Gamma * S^2 * s^2 * dt * (z^2 - 1)`, and since `Var(z^2 - 1) = 2` the variance
-of the sum goes as `1/N`.
-
-**F2. Hedging at realized volatility locks in the edge; hedging at implied earns the
-same mean with six times the dispersion.**
-
-Selling at 35 implied against 25 realized, where the theoretical edge is 3.9444:
-
-| hedged at | mean P&L | sd | P(profit) |
-|-----------|---------|-----|-----------|
-| realized  | +3.9434 | 0.1950 | 100% |
-| implied   | +3.9584 | 1.2789 | 100% |
-
-The two means agree, which holds only when the simulated drift is `r - q`, so the
-experiment pins the drift and the test asserts it. The pathwise sign follows
-`s_imp - s_real`: short volatility profits when realized comes in below implied.
-
-**F3. The P&L explain closes, and the residual measures what delta hedging cannot
-see.**
-
-```
-gamma  -5.913      theta  +5.910      delta  -2.49e-20      residual  +0.0001
-```
-
-Delta at `1e-20` is a book that is exactly flat. Gamma and theta almost cancel, which
-is the trade a short option is: you are paid time decay to carry short convexity. The
-residual is third order in `dS` and shrinks by a factor of two for every fourfold grid
-refinement, measured at 0.069, 0.035 and 0.017.
-
-**F5. Total cost against rehedge frequency is U-shaped, and the optimum moves with
-the cost rate.**
-
-At 60 bps the risk-adjusted objective bottoms at 65 rehedges, against 4.116 at the
-sparse end and 12.521 at the dense end. At zero cost the curve is monotone: hedge as
-often as you can.
+![discretisation law and jump floor](figures/f1_f4_discretisation_and_jump_floor.png)
 
 ## Run it
 
@@ -76,8 +50,14 @@ uv run vl bench                                 # NumPy reference against C++
 uv run vl surface --noise 1.5                   # fit a smile, check it for arbitrage
 uv run vl mm --gam 0.1                          # quote with and without inventory skew
 uv run vl view                                  # browse recorded runs
-uv run pytest
+uv run pytest                                   # 328 tests
+uv run python scripts/report.py                 # regenerates every number
+uv run python scripts/render_report.py          # fills REPORT.md
+uv run python scripts/figures.py                # redraws figures/
 ```
+
+Every number in REPORT.md comes from `artifacts/findings.json`, which `scripts/report.py`
+writes and CI checks. Nothing in the report is typed by hand.
 
 Editing C++ needs `uv sync --reinstall-package vollab`; the editable rebuild hook is
 off deliberately, and `pyproject.toml` records why.
