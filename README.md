@@ -135,11 +135,39 @@ and has just been corrected. That is the check CI runs.
 
 ## How it stays honest
 
+Running the original authors' own code on the original data reproduces a published
+finance result exactly only **52% of the time** (Perignon et al., *Computational
+Reproducibility in Finance: Evidence from 1,000 Tests*, Review of Financial Studies
+37(11), 2024). Everything below exists to make that number 100% here.
+
 A config file carries its own hash. Editing a parameter without re-registering blocks
 the run, so the hypothesis is fixed before the number exists. Every run writes a row
 recording the config hash, the git commit, whether the tree was dirty, the RNG scheme
 version and the library versions. `vl compare` refuses a paired bootstrap between two
 runs that did not share paths, because that comparison would be silently wrong.
+
+Four layers, each catching what the one above it cannot:
+
+| layer | catches |
+|-------|---------|
+| `scripts/report.py` to `artifacts/findings.json` | a number in the report with no producing code |
+| `scripts/render_report.py` into marked blocks | prose drifting from the artifact |
+| `scripts/figures.py` reading only the artifact | a figure disagreeing with its own number |
+| CI running all three on every push | any of the above failing quietly on another machine |
+
+The Dockerfile adds the layer underneath: `uv.lock` pins Python packages but not the
+compiler, libm or CPU features, and those matter here. The C++ engine and the NumPy
+reference agree only to a tolerance because inverse-CDF normals are not bit-portable
+across libms, and the golden test had to be loosened for exactly that reason.
+
+```sh
+docker build -t vol-lab .
+docker run --rm vol-lab                    # correctness suite on a pinned OS
+docker run --rm vol-lab pytest -m slow     # reproduce the findings
+```
+
+CI builds this image and runs the suite inside it on every push, so the claim that it
+works is checked rather than asserted.
 
 You own the database, so none of this is security. It is friction, plus an honest
 record of what was actually tried.
@@ -183,3 +211,4 @@ is wrong and a command that regenerates it.
 - Leland, H. (1985). Option pricing and replication with transactions costs.
 - Whalley, A. E. and Wilmott, P. (1997). An asymptotic analysis of an optimal hedging model for option pricing with transaction costs.
 - Ahmad, R. and Wilmott, P. (2005). Which free lunch would you like today, sir?
+- Perignon, C., Akmansoy, O., Hurlin, C., et al. (2024). Computational reproducibility in finance: evidence from 1,000 tests. Review of Financial Studies 37(11), 3558.

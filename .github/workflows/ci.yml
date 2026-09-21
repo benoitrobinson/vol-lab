@@ -42,6 +42,13 @@ jobs:
           test -s /tmp/smoke.json
           git diff --exit-code -- artifacts/ REPORT.md
 
+      - name: The pinned image must build and pass its own suite
+        # Not verified on the author's machine: the Docker daemon was not
+        # running when this was written. CI is the verification.
+        run: |
+          docker build -t vol-lab .
+          docker run --rm vol-lab pytest -q
+
       - name: CLI smoke test
         run: |
           uv run vl price --K 100 --T 1 --vol 0.3
