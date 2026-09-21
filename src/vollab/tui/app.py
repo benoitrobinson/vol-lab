@@ -12,7 +12,8 @@ from pathlib import Path
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
+from textual.screen import ModalScreen
 from textual.widgets import (
     Button, DataTable, Footer, Header, Input, Label, ListItem, ListView, Static,
     TabbedContent, TabPane,
@@ -161,6 +162,31 @@ def lesson_body(lesson, findings):
     return "\n".join(out)
 
 
+class HelpScreen(ModalScreen):
+    """Keys and what each tab does. Dismissed by any key."""
+
+    CSS = """
+    HelpScreen { align: center middle; }
+    #help-box {
+        width: 78; height: auto; max-height: 90%;
+        border: thick $accent; background: $surface; padding: 1 2;
+    }
+    """
+
+    def __init__(self, text):
+        super().__init__()
+        self.text = text
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="help-box"):
+            yield Static(self.text)
+            yield Label("")
+            yield Label("press any key to close")
+
+    def on_key(self):
+        self.dismiss()
+
+
 class VolLabApp(App):
     CSS = """
     Screen { layout: vertical; }
@@ -174,10 +200,46 @@ class VolLabApp(App):
     .out { padding: 1 2; }
     Button { margin-right: 2; }
     """
+    TABS = ["lessons", "price", "surface", "hedge", "making", "engines", "runs"]
+
     BINDINGS = [
         ("q", "quit", "quit"),
-        ("r", "refresh", "run this tab"),
+        ("r", "refresh", "run"),
+        ("question_mark", "help", "keys"),
+        *[(str(i + 1), f"tab('{name}')", name)
+          for i, name in enumerate(["lessons", "price", "surface", "hedge",
+                                    "making", "engines", "runs"])],
+        ("left", "prev_tab", ""),
+        ("right", "next_tab", ""),
     ]
+
+    HELP = """\
+vol-lab keys
+
+  1 .. 7        jump to a tab
+  left, right   previous or next tab
+  r             run the current tab
+  ?             this help
+  q             quit
+
+  tab, shift+tab   move between inputs and buttons
+  enter            press the focused button
+
+tabs
+
+  1 lessons   the eight findings: question, mechanism, and the measured
+              numbers, read live from artifacts/findings.json
+  2 price     Black-Scholes and coin-settled prices, greeks, delta curve
+  3 surface   SVI calibration; the unconstrained button shows the density
+              going negative, which is the finding rather than a claim
+  4 hedge     one hedging experiment: P&L histogram and the full explain
+  5 making    three quoting strategies on identical paths, paired bootstrap
+  6 engines   the C++ core against the NumPy reference, equal work
+  7 runs      every recorded run with its provenance
+
+Numbers in the lessons come from artifacts/findings.json. If a lesson says
+to run scripts/report.py, the artifact is missing rather than the finding.
+"""
 
     def __init__(self, db_path=None):
         super().__init__()
@@ -291,6 +353,26 @@ class VolLabApp(App):
          "s-free": lambda: self.run_surface(False), "h-go": self.run_hedge,
          "m-go": self.run_mm, "b-go": self.run_bench}.get(
             event.button.id, lambda: None)()
+
+    def action_tab(self, name):
+        self.query_one(TabbedContent).active = name
+
+    def _step_tab(self, delta):
+        tabs = self.query_one(TabbedContent)
+        try:
+            i = self.TABS.index(tabs.active)
+        except ValueError:
+            return
+        tabs.active = self.TABS[(i + delta) % len(self.TABS)]
+
+    def action_next_tab(self):
+        self._step_tab(1)
+
+    def action_prev_tab(self):
+        self._step_tab(-1)
+
+    def action_help(self):
+        self.push_screen(HelpScreen(self.HELP))
 
     def action_refresh(self):
         {"price": self.run_price, "surface": lambda: self.run_surface(True),

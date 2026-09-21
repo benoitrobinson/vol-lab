@@ -40,36 +40,98 @@ driving normal.
 
 ![discretisation law and jump floor](figures/f1_f4_discretisation_and_jump_floor.png)
 
-## Run it
+## Commands and controls
 
-`vl view` is the main panel. It opens on the lessons, and every tool lives inside it:
-the eight findings with their charts and measured numbers, an interactive pricer, SVI
-calibration with the implied density plotted, a hedging experiment, the three quoting
-strategies, the engine benchmark, and the run ledger. Press `r` to re-run the current
-tab, `q` to quit.
+### Setup
 
 ```sh
-uv sync
-uv run vl price --K 100 --T 1 --vol 0.3         # Black-Scholes price and greeks
-uv run vl register configs/discretisation.toml  # stamp a config with its hash
-uv run vl run configs/discretisation.toml       # run it, chart it, record it
-uv run vl bench                                 # NumPy reference against C++
-uv run vl surface --noise 1.5                   # fit a smile, check it for arbitrage
-uv run vl mm --gam 0.1                          # quote with and without inventory skew
-uv run vl view                                  # open the lab: lessons, charts, tools
-uv run pytest                                   # correctness, 2m47s measured
-uv run pytest -m slow                           # reproduce the findings
-uv run pytest -m ""                             # everything
-uv run python scripts/report.py                 # regenerates every number
-uv run python scripts/render_report.py          # fills REPORT.md
-uv run python scripts/figures.py                # redraws figures/
+uv sync                                  # builds everything, including the C++ core
+uv sync --reinstall-package vollab       # after editing C++; the rebuild hook is off
 ```
 
-Every number in REPORT.md comes from `artifacts/findings.json`, which `scripts/report.py`
-writes and CI checks. Nothing in the report is typed by hand.
+Put `vl` on your PATH once and it works from anywhere:
 
-Editing C++ needs `uv sync --reinstall-package vollab`; the editable rebuild hook is
-off deliberately, and `pyproject.toml` records why.
+```sh
+ln -sf "$PWD/.venv/bin/vl" ~/.local/bin/vl
+export VOLLAB_HOME="$HOME/.vollab"       # one ledger, wherever you invoke it
+```
+
+Without `VOLLAB_HOME` the ledger is written to `./.vollab/`, which gives a separate
+history per directory. That is the right default inside a project and the wrong one
+for a command on your PATH.
+
+### The lab
+
+`vl view` is the main panel. Everything lives inside it.
+
+| key | does |
+|-----|------|
+| `1` .. `7` | jump to a tab |
+| `left`, `right` | previous or next tab, wrapping |
+| `r` | run the current tab |
+| `?` | keys and what each tab does |
+| `q` | quit |
+| `tab`, `shift+tab` | move between inputs and buttons |
+| `enter` | press the focused button |
+
+| tab | what it holds |
+|-----|---------------|
+| 1 lessons | the eight findings: the question a desk would ask, why it happens, so what, and the measured numbers read live from `artifacts/findings.json` |
+| 2 price | Black-Scholes and coin-settled prices, greeks, delta against spot |
+| 3 surface | SVI calibration, smile and implied density. The unconstrained button shows the density going negative |
+| 4 hedge | one hedging experiment: P&L histogram and the full explain |
+| 5 making | three quoting strategies on identical paths, with a paired bootstrap |
+| 6 engines | the C++ core against the NumPy reference, timed on equal work |
+| 7 runs | every recorded run with its provenance |
+
+### Commands
+
+Numbered in run order, as `vl --help` lists them.
+
+| command | what it does | useful flags |
+|---------|--------------|--------------|
+| `vl price` | price and greeks, vanilla and coin-settled | `--K --T --vol --S --r --q --kind` |
+| `vl register <config>` | stamp a config with its hash, so it can be run | |
+| `vl run <config>` | run a registered experiment, chart it, record it | |
+| `vl compare <a> <b>` | paired bootstrap between two runs; refuses if they did not share paths | |
+| `vl bench` | NumPy reference against the C++ engine | `--paths --repeats` |
+| `vl surface` | fit an SVI slice and check it for arbitrage | `--T --noise --points --width --unconstrained` and the Heston parameters `--v0 --kappa --theta --xi --rho` |
+| `vl mm` | market making with and without inventory skew | `--gam --paths --steps --sigma --A --kappa --cap` |
+| `vl view` | open the lab | |
+| `vl ledger` | list recorded runs | |
+
+Two worth trying first, because each shows a finding rather than describing it:
+
+```sh
+vl surface --noise 3 --unconstrained     # watch the implied density go negative
+vl mm --gam 1.0                          # where Avellaneda-Stoikov collapses and GLFT does not
+```
+
+### Tests
+
+```sh
+uv run pytest                            # correctness, 2m47s measured
+uv run pytest -m slow                    # reproduce the findings, 16m17s measured
+uv run pytest -m ""                      # everything
+uv run pytest -k inverse                 # by keyword
+```
+
+The findings are split out because they are research sweeps, thousands of paths across
+a frequency grid. CI runs both tiers on every push, so nothing is hidden behind the
+flag; the split only keeps the loop you run while working under three minutes.
+
+### Regenerating the report
+
+```sh
+uv run python scripts/report.py                       # 5 seeds -> artifacts/findings.json
+uv run python scripts/render_report.py                # fills REPORT.md's generated blocks
+uv run python scripts/figures.py                      # redraws figures/
+uv run python scripts/report.py --quick --out /tmp/x.json   # smoke run, clobbers nothing
+```
+
+Every number in REPORT.md comes from the artifact. If `git diff` shows changes to
+`REPORT.md` or `artifacts/` after running these, the report had drifted from the code
+and has just been corrected. That is the check CI runs.
 
 ## How it stays honest
 

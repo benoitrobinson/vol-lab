@@ -105,3 +105,61 @@ async def test_switching_tabs_does_not_error(tmp_path):
             tabs.active = name
             await pilot.pause()
         assert tabs.active == "runs"
+
+
+# --- keys and controls --------------------------------------------------------
+
+def test_every_tab_has_a_number_key():
+    """Seven tabs, seven digits, in the order they appear."""
+    keys = {b[0] for b in VolLabApp.BINDINGS if b[0].isdigit()}
+    assert keys == {str(i) for i in range(1, len(VolLabApp.TABS) + 1)}
+
+
+def test_help_text_documents_every_tab_and_key():
+    help_text = VolLabApp.HELP
+    for name in VolLabApp.TABS:
+        assert name in help_text, f"{name} is undocumented"
+    for key in ("r", "q", "?"):
+        assert key in help_text
+
+
+@pytest.mark.asyncio
+async def test_number_keys_switch_tabs(tmp_path):
+    from textual.widgets import TabbedContent
+    app = VolLabApp(None)
+    async with app.run_test() as pilot:
+        await pilot.press("3")
+        await pilot.pause()
+        assert app.query_one(TabbedContent).active == "surface"
+        await pilot.press("7")
+        await pilot.pause()
+        assert app.query_one(TabbedContent).active == "runs"
+
+
+@pytest.mark.asyncio
+async def test_arrow_keys_wrap_around_the_tabs(tmp_path):
+    from textual.widgets import TabbedContent
+    app = VolLabApp(None)
+    async with app.run_test() as pilot:
+        tabs = app.query_one(TabbedContent)
+        tabs.active = "lessons"
+        await pilot.pause()
+        app.action_prev_tab()
+        await pilot.pause()
+        assert tabs.active == "runs", "left from the first tab wraps to the last"
+        app.action_next_tab()
+        await pilot.pause()
+        assert tabs.active == "lessons"
+
+
+@pytest.mark.asyncio
+async def test_help_screen_opens_and_closes(tmp_path):
+    from vollab.tui.app import HelpScreen
+    app = VolLabApp(None)
+    async with app.run_test() as pilot:
+        await pilot.press("question_mark")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, HelpScreen)
