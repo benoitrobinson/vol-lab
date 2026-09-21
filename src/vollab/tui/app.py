@@ -16,7 +16,7 @@ from textual.containers import Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button, DataTable, Footer, Header, Input, Label, ListItem, ListView, Static,
-    TabbedContent, TabPane,
+    TabbedContent, TabPane, Tabs,
 )
 
 from vollab.protocol.ledger import Ledger
@@ -25,7 +25,11 @@ from vollab.tui.lessons import LESSONS
 ROOT = Path(__file__).resolve().parent.parent.parent.parent
 ARTIFACT = ROOT / "artifacts" / "findings.json"
 
-CHART_W, CHART_H = 84, 20
+# Charts are sized against the window rather than fixed. A constant size
+# either overflowed a small terminal or left half a large one empty, and the
+# numbers under a chart are the point, so they must not fall below the fold.
+# CHROME is the rows the app spends on header, tab bar, controls and footer.
+CHROME = 11
 
 
 def ansi(text):
@@ -162,16 +166,24 @@ def lesson_body(lesson, findings):
     return "\n".join(out)
 
 
+# The help box is fixed width, so HELP has to be wrapped to fit inside it:
+# a longer line is rewrapped by Rich and the hanging indent collapses to the
+# left margin. HELP_TEXT_COLUMNS is what is left after the border, the padding
+# and the scrollbar, and a test holds HELP to it.
+HELP_BOX_WIDTH = 78
+HELP_TEXT_COLUMNS = HELP_BOX_WIDTH - 2 - 4 - 1
+
+
 class HelpScreen(ModalScreen):
     """Keys and what each tab does. Dismissed by any key."""
 
     CSS = """
     HelpScreen { align: center middle; }
     #help-box {
-        width: 78; height: auto; max-height: 90%;
+        width: %d; height: auto; max-height: 90%%;
         border: thick $accent; background: $surface; padding: 1 2;
     }
-    """
+    """ % HELP_BOX_WIDTH
 
     def __init__(self, text):
         super().__init__()
@@ -192,7 +204,7 @@ class VolLabApp(App):
     Screen { layout: vertical; }
     #runs-table { width: 45%; border: solid $accent; }
     #run-detail { width: 1fr; border: solid $accent; padding: 1; }
-    #lesson-list { width: 34; border: solid $accent; }
+    #lesson-list { width: 48; border: solid $accent; }
     #lesson-body { width: 1fr; padding: 1 2; }
     .controls { height: auto; padding: 1 2; }
     .controls Input { width: 14; margin-right: 2; }
@@ -227,18 +239,24 @@ vol-lab keys
 
 tabs
 
-  1 lessons   the eight findings: question, mechanism, and the measured
-              numbers, read live from artifacts/findings.json
-  2 price     Black-Scholes and coin-settled prices, greeks, delta curve
-  3 surface   SVI calibration; the unconstrained button shows the density
-              going negative, which is the finding rather than a claim
-  4 hedge     one hedging experiment: P&L histogram and the full explain
-  5 making    three quoting strategies on identical paths, paired bootstrap
-  6 engines   the C++ core against the NumPy reference, equal work
+  1 lessons   the eight findings: question, mechanism and the
+              measured numbers, read live from the artifact
+  2 price     Black-Scholes and coin-settled prices, greeks,
+              delta against spot
+  3 surface   SVI calibration; the unconstrained button shows
+              the density going negative, which is the finding
+              rather than a claim
+  4 hedge     one hedging experiment: the P&L histogram and
+              the full explain
+  5 making    three quoting strategies on identical paths,
+              compared by paired bootstrap
+  6 engines   the C++ core against the NumPy reference, at
+              equal work
   7 runs      every recorded run with its provenance
 
-Numbers in the lessons come from artifacts/findings.json. If a lesson says
-to run scripts/report.py, the artifact is missing rather than the finding.
+Numbers in the lessons come from artifacts/findings.json. If a
+lesson says to run scripts/report.py, the artifact is missing
+rather than the finding.
 """
 
     def __init__(self, db_path=None):
@@ -341,6 +359,11 @@ to run scripts/report.py, the artifact is missing rather than the finding.
 
     # -------------------------------------------------------------- handlers
 
+    def _chart_size(self, reserve, min_h=10):
+        """Columns and rows left for charts once `reserve` lines of text are placed."""
+        w = min(max(self.size.width - 10, 44), 120)
+        return w, min(max(self.size.height - CHROME - reserve, min_h), 28)
+
     def _num(self, wid, cast=float, default=0.0):
         try:
             return cast(self.query_one(wid, Input).value)
@@ -353,6 +376,17 @@ to run scripts/report.py, the artifact is missing rather than the finding.
          "s-free": lambda: self.run_surface(False), "h-go": self.run_hedge,
          "m-go": self.run_mm, "b-go": self.run_bench}.get(
             event.button.id, lambda: None)()
+
+    @on(TabbedContent.TabActivated)
+    def _focus_active_pane(self, _event):
+        """The lesson list needs focus for the arrow keys. Every other tab parks
+        focus on the tab bar instead: a focused Input swallows r and the digits,
+        and a focused widget inside a hidden pane drags the active tab back to
+        that pane, so switching tabs appears not to work at all."""
+        if self.query_one(TabbedContent).active == "lessons":
+            self.query_one("#lesson-list", ListView).focus()
+        else:
+            self.query_one(Tabs).focus()
 
     def action_tab(self, name):
         self.query_one(TabbedContent).active = name
@@ -400,6 +434,7 @@ to run scripts/report.py, the artifact is missing rather than the finding.
         a = (S, K, T, 0.0, 0.0, v)
         grid = np.linspace(max(S * 0.5, 1.0), S * 1.6, 120)
         coin, naive, gap = fiat_delta_mismatch("call", S, K, T, 0.0, 0.0, v)
+        cw, ch = self._chart_size(8)
         body = "\n".join([
             f"call  {bs_price('call', *a):12.6f}      put  {bs_price('put', *a):12.6f}",
             f"delta {bs_delta('call', *a):+12.6f}      gamma {bs_gamma('call', *a):+12.6f}",
@@ -411,7 +446,7 @@ to run scripts/report.py, the artifact is missing rather than the finding.
             "",
             curve(grid, bs_delta("call", grid, K, T, 0.0, 0.0, v),
                   "call delta against spot", "spot", "delta",
-                  width=CHART_W, height=CHART_H),
+                  width=cw, height=ch),
         ])
         self.call_from_thread(
             lambda: self.query_one("#price-out", Static).update(ansi(body)))
@@ -451,13 +486,15 @@ to run scripts/report.py, the artifact is missing rather than the finding.
             return
         fine = np.linspace(ks.min() * 1.4, ks.max() * 1.4, 200)
         bad = diag["min_durrleman_g"] < -1e-8
+        cw, budget = self._chart_size(7, min_h=20)
+        sh = max(int(budget * 0.55), 11)
         body = "\n".join([
             smile(ks, iv, fine, svi_iv(p, fine, T),
                   f"Heston smile, T={T}" + (f", {noise}bp noise" if noise else ""),
-                  width=CHART_W, height=CHART_H),
+                  width=cw, height=sh),
             "",
             density(fine, risk_neutral_density(p, fine, T), "implied density",
-                    width=CHART_W, height=14),
+                    width=cw, height=max(budget - sh, 9)),
             "",
             f"SVI  a={p.a:+.5f} b={p.b:.5f} rho={p.rho:+.4f} m={p.m:+.5f}"
             f" sigma={p.sigma:.5f}",
@@ -493,8 +530,9 @@ to run scripts/report.py, the artifact is missing rather than the finding.
         r = simulate(cfg)
         sd, se = bootstrap_sd(r.pnl, n_boot=300)
         a = r.attribution
+        cw, ch = self._chart_size(9)
         body = "\n".join([
-            histogram(r.pnl, "terminal P&L", width=CHART_W, height=CHART_H),
+            histogram(r.pnl, "terminal P&L", width=cw, height=ch),
             "",
             f"mean      {r.pnl.mean():+.6f} +/- "
             f"{r.pnl.std(ddof=1) / np.sqrt(r.pnl.size):.6f}",
@@ -535,11 +573,12 @@ to run scripts/report.py, the artifact is missing rather than the finding.
                                              n_boot=800)
                 lines.append(f"{left} minus control: {d:+.3f} [{lo:+.3f}, {hi:+.3f}]")
         lines.append("")
+        cw, budget = self._chart_size(8, min_h=18)
         for name in ("avellaneda_stoikov", "symmetric"):
             if name in runs:
                 lines.append(histogram(runs[name].inventory_end.astype(float),
                                        f"end inventory, {name}", bins=31,
-                                       width=CHART_W, height=14))
+                                       width=cw, height=max(budget // 2, 9)))
                 lines.append("")
         body = "\n".join(lines)
         self.call_from_thread(

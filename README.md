@@ -15,6 +15,14 @@ Every finding below is produced by a test that fails if the engine is wrong, and
 command you can run yourself. The full write-up, including the jump floor and the
 schedule comparison, is in [REPORT.md](REPORT.md).
 
+![the lab: the findings, an SVI fit, a hedging experiment and the key table](figures/vol-lab-view.gif)
+
+`vl view` is the whole lab in one panel: the eight findings with the numbers that were
+actually measured, then the tools that produced them. Charts are sized to the window,
+so the numbers under a chart stay on screen. The recording is produced by
+`scripts/record_view.py` from the keys the panel binds, so it cannot drift into
+advertising a control that no longer exists.
+
 ## Findings
 
 Eight findings, each with a test that fails if the engine is wrong and a command that
@@ -127,6 +135,14 @@ uv run python scripts/report.py                       # 5 seeds -> artifacts/fin
 uv run python scripts/render_report.py                # fills REPORT.md's generated blocks
 uv run python scripts/figures.py                      # redraws figures/
 uv run python scripts/report.py --quick --out /tmp/x.json   # smoke run, clobbers nothing
+```
+
+The animation at the top is regenerated the same way, by driving the real panel through
+a pty rather than by capturing a screen:
+
+```sh
+uv run python scripts/record_view.py     # figures/vol-lab-view.cast
+./scripts/render_view_gif.sh             # needs agg:  brew install agg
 ```
 
 Every number in REPORT.md comes from the artifact. If `git diff` shows changes to

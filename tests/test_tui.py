@@ -123,6 +123,14 @@ def test_help_text_documents_every_tab_and_key():
         assert key in help_text
 
 
+def test_help_text_fits_the_help_box():
+    """Rich rewraps a line wider than the modal, and the hanging indent of the
+    tab list collapses to the left margin, which is how it read before."""
+    from vollab.tui.app import HELP_TEXT_COLUMNS
+    over = [l for l in VolLabApp.HELP.splitlines() if len(l) > HELP_TEXT_COLUMNS]
+    assert not over, over
+
+
 @pytest.mark.asyncio
 async def test_number_keys_switch_tabs(tmp_path):
     from textual.widgets import TabbedContent
@@ -163,3 +171,35 @@ async def test_help_screen_opens_and_closes(tmp_path):
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, HelpScreen)
+
+
+@pytest.mark.asyncio
+async def test_arrows_move_the_lesson_list_and_digits_still_switch_tabs():
+    """The lesson list has to hold focus for the arrows, but a focused widget
+    inside a hidden pane drags the active tab back to that pane, which made
+    every number key look broken."""
+    from textual.widgets import ListView, TabbedContent
+    app = VolLabApp(None)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("down")
+        await pilot.pause()
+        assert app.query_one("#lesson-list", ListView).index == 1
+        await pilot.press("4")
+        await pilot.pause()
+        assert app.query_one(TabbedContent).active == "hedge"
+
+
+@pytest.mark.asyncio
+async def test_chart_height_follows_the_window():
+    """A fixed chart size either overflowed a small terminal or left half a
+    large one empty, and it pushed the P&L explain below the fold."""
+    from vollab.tui.app import CHROME
+    heights = {}
+    for rows in (30, 46):
+        app = VolLabApp(None)
+        async with app.run_test(size=(110, rows)) as pilot:
+            await pilot.pause()
+            _, heights[rows] = app._chart_size(9)
+    assert heights[30] < heights[46], heights
+    assert heights[30] + 9 + CHROME <= 30, heights

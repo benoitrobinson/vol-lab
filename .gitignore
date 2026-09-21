@@ -9,3 +9,6 @@ dist/
 .DS_Store
 
 # artifacts/findings.json IS committed: it is the provenance for REPORT.md.
+
+# the recording the GIF is rendered from; scripts/record_view.py regenerates it
+figures/*.cast
