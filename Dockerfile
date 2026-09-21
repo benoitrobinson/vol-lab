@@ -28,7 +28,9 @@ COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
 WORKDIR /lab
 
 # Dependency layer first, so source edits do not trigger a full rebuild.
-COPY pyproject.toml uv.lock CMakeLists.txt ./
+# README.md belongs here despite not being source: pyproject declares it as the
+# project readme, so the build backend refuses to build the wheel without it.
+COPY pyproject.toml uv.lock CMakeLists.txt README.md ./
 COPY cpp ./cpp
 COPY src ./src
 RUN uv sync --frozen
