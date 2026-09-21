@@ -118,15 +118,17 @@ vl mm --gam 1.0                          # where Avellaneda-Stoikov collapses an
 ### Tests
 
 ```sh
-uv run pytest                            # correctness, 2m47s measured
-uv run pytest -m slow                    # reproduce the findings, 16m17s measured
+uv run pytest                            # correctness, 25s measured
+uv run pytest -m slow                    # reproduce the findings, 1m55s measured
 uv run pytest -m ""                      # everything
 uv run pytest -k inverse                 # by keyword
 ```
 
 The findings are split out because they are research sweeps, thousands of paths across
-a frequency grid. CI runs both tiers on every push, so nothing is hidden behind the
-flag; the split only keeps the loop you run while working under three minutes.
+a frequency grid, not something you want on every edit. CI runs both tiers on every
+push, so nothing is hidden behind the flag. Both times were measured on an idle
+machine, each twice; the sweeps run on the NumPy reference, so building the C++
+extension does not change them.
 
 ### Regenerating the report
 
