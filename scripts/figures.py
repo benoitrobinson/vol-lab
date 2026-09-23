@@ -220,11 +220,94 @@ def fig_variance_reduction():
     plt.close(fig)
 
 
+def fig_rough_vol_floor():
+    """F9: the hedging error against rehedge frequency, one curve per vol-of-vol."""
+    d = F["f9_rough_vol_floor"]
+    etas = sorted(d["sweep"], key=float)
+    colours = [INK, "#3c6e91", "#8a5a44", ACCENT]
+
+    fig, ax = plt.subplots(figsize=(7.2, 3.6))
+    for eta, colour in zip(etas, colours):
+        v = d["sweep"][eta]
+        n = np.array(v["rehedges"], dtype=float)
+        sd = np.array(v["sd_curve_mean"], dtype=float)
+        ax.loglog(n, sd, color=colour, marker="o", ms=3.2, lw=1.3)
+        label_end(ax, n[-1], sd[-1], f"$\\eta$ = {eta}", colour)
+
+    base = d["sweep"][etas[0]]
+    n0 = np.array(base["rehedges"], dtype=float)
+    ref = np.array(base["sd_curve_mean"])[0] * (n0 / n0[0]) ** -0.5
+    ax.loglog(n0, ref, color=MUTED, lw=0.9, ls=":")
+    label_end(ax, n0[2], ref[2] * 0.6, "slope $-1/2$", MUTED)
+
+    top = d["sweep"][etas[-1]]
+    ax.annotate(
+        f"vega risk floors the error:\n"
+        f"slope {top['slope']['mean']:+.3f} at $\\eta$ = {etas[-1]}\n"
+        f"against {base['slope']['mean']:+.3f} at $\\eta$ = 0",
+        xy=(n0[-2], np.array(top["sd_curve_mean"])[-2]),
+        xytext=(0.32, 0.30), textcoords="axes fraction",
+        fontsize=8.2, color=ACCENT, ha="left", va="top",
+        arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.8,
+                        connectionstyle="arc3,rad=0.2"))
+
+    ax.set_xlabel("rehedges per year (log scale)")
+    ax.set_ylabel("sd of terminal P&L, price points (log scale)")
+    ax.set_title("A delta hedge cannot remove vega risk", loc="left", fontsize=10)
+    annotate_n(ax, f"rough Bergomi, H = {d['H']}, {F['meta']['n_mon']}-step grid, "
+                   f"{top['slope']['n_seeds']} seeds")
+    fig.savefig(FIG / "f9_rough_vol_floor.png")
+    plt.close(fig)
+
+
+def fig_adverse_selection():
+    """F11 and F12 side by side: who pays for the unwind, and who pays the
+    information, which are not the same dealer."""
+    d11, d12 = F["f11_unwind"], F["f12_adverse_selection"]
+    strats = ("symmetric", "avellaneda_stoikov", "glft")
+    names = ["never skewed", "Avellaneda-Stoikov", "steady state"]
+
+    fig, axes = plt.subplots(1, 2, figsize=(7.4, 3.3))
+
+    ax = axes[0]
+    free = [d11["table"]["frictionless"][s]["pnl"]["mean"] for s in strats]
+    charged = [d11["table"]["unwind"][s]["pnl"]["mean"] for s in strats]
+    x = np.arange(len(strats))
+    ax.bar(x - 0.18, free, width=0.34, color=MUTED, label="free unwind")
+    ax.bar(x + 0.18, charged, width=0.34, color=INK, label="unwind charged")
+    ax.set_xticks(x)
+    ax.set_xticklabels(names, fontsize=7.6, rotation=12, ha="right")
+    ax.set_ylabel("mean P&L, price points")
+    ax.set_ylim(min(charged) * 0.9, max(free) * 1.04)
+    ax.legend(fontsize=7.4, frameon=False)
+    ax.set_title("Who pays to go home flat", loc="left", fontsize=9.5)
+
+    ax = axes[1]
+    phis = sorted(d12["table"], key=float)
+    for name, s, colour in zip(names, strats, [MUTED, "#3c6e91", ACCENT]):
+        y = [d12["table"][p][s]["markout_per_fill"]["mean"] for p in phis]
+        ax.plot([float(p) for p in phis], y, color=colour, marker="o", ms=3.4, lw=1.3,
+                label=name)
+    zero_line(ax)
+    ax.set_xlabel("informed fraction of arrivals")
+    ax.set_ylabel("markout per fill, price points")
+    ax.legend(fontsize=7.4, frameon=False, loc="lower left")
+    ax.set_title("Adverse selection does not care how you quote", loc="left", fontsize=9.5)
+
+    annotate_n(axes[1], f"{d12['n_paths']:,} sessions per point, "
+                        f"{len(F['meta']['seeds'])} seeds")
+    fig.tight_layout()
+    fig.savefig(FIG / "f11_f12_unwind_and_adverse_selection.png")
+    plt.close(fig)
+
+
 def main():
     FIG.mkdir(exist_ok=True)
     fig_discretisation_and_floor()
     fig_schedules()
     fig_market_making()
+    fig_rough_vol_floor()
+    fig_adverse_selection()
     fig_variance_reduction()
     for p in sorted(FIG.glob("*.png")):
         print(f"wrote figures/{p.name}  ({p.stat().st_size // 1024} KB)")

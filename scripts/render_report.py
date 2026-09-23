@@ -208,6 +208,100 @@ def blocks(f):
         f"antithetic sampling cannot help at all: the hedging error is even\nin the driving "
         f"normal, so a mirrored path reproduces it exactly and the correlation\nbetween a pair "
         f"is {v['antithetic_correlation']:.1f}.")
+    d = f.get("f9_rough_vol_floor")
+    if d:
+        rows = "\n".join(
+            f"| {eta} | {v['slope']['mean']:+.3f} +/- {v['slope']['sd']:.3f} | "
+            f"{v['sd_ratio']['mean']:.3f} +/- {v['sd_ratio']['sd']:.3f} |"
+            for eta, v in sorted(d["sweep"].items(), key=lambda kv: float(kv[0])))
+        rc = d["roughness_control"]
+        top = d["sweep"][str(max(d["etas"]))]
+        out["f9"] = (
+            f"Rough Bergomi with H = {d['H']} and correlation {d['rho']}, hedged with a "
+            f"Black-Scholes delta:\n\n"
+            f"| vol-of-vol eta | slope | sd dense / sd sparse |\n|---|---|---|\n{rows}\n\n"
+            f"At eta = 0 the variance is constant, the model is Black-Scholes and the "
+            f"square-root law\ncomes back. Raising it flattens the curve until rehedging "
+            f"faster buys almost nothing.\n\n"
+            f"Roughness is not what does it. At eta = {rc['eta']} and H = {rc['H']}, a "
+            f"variance nearly as smooth as\na diffusion, the slope is "
+            f"{rc['slope']['mean']:+.3f} and the ratio {rc['sd_ratio']['mean']:.3f}, "
+            f"against {top['slope']['mean']:+.3f} and {top['sd_ratio']['mean']:.3f}\n"
+            f"at H = {d['H']}. The floor is vega risk, and vega risk does not care how "
+            f"rough the variance is.")
+
+    d = f.get("f10_rough_skew")
+    if d:
+        rough, hes = d["models"]["rbergomi"], d["models"]["heston"]
+        rows = "\n".join(
+            f"| {T:.2f} | {rough['skews'][i]:.3f} | {hes['skews'][i]:.3f} |"
+            for i, T in enumerate(d["maturities"]))
+        out["f10"] = (
+            f"At-the-money skew, measured as the implied volatility difference across "
+            f"log-moneyness\n+/-{d['log_moneyness']:.2f}, divided by the width, on "
+            f"{d['n_paths']:,} paths:\n\n"
+            f"| maturity, years | rough Bergomi | Heston |\n|---|---|---|\n{rows}\n\n"
+            f"Fitted power law in maturity: rough Bergomi **{rough['slope']:+.3f}**, "
+            f"Heston {hes['slope']:+.3f},\nagainst the theoretical H - 1/2 = "
+            f"{d['theoretical_slope']:+.2f}. A diffusive variance cannot make the "
+            f"short-dated\nskew explode, whatever its parameters: its increments are "
+            f"too smooth to move the\ndistribution of a one-week option. Roughness can, "
+            f"and that is what it is for.")
+
+    d = f.get("f11_unwind")
+    if d:
+        labels = {"frictionless": "free unwind", "unwind": "unwind charged",
+                  "informed": "informed flow", "both": "both frictions"}
+        rows = []
+        for key in ("frictionless", "unwind", "informed", "both"):
+            row = d["table"][key]
+            for s_ in ("symmetric", "avellaneda_stoikov", "glft"):
+                v = row[s_]
+                rows.append(
+                    f"| {labels[key]} | {s_.replace('_', ' ')} | {v['pnl']['mean']:.2f} | "
+                    f"{v['sd_vs_control']['mean']:.2f} | {v['unwind_paid']['mean']:.2f} | "
+                    f"{v['end_inventory']['mean']:.1f} |")
+        pw = "\n".join(
+            f"| {labels[k]} | {v['diff']:+.3f} | [{v['ci_low']:+.3f}, {v['ci_high']:+.3f}] | "
+            f"{'straddles zero' if v['straddles_zero'] else 'decisive'} |"
+            for k, v in d["pairwise"].items())
+        u = d["unwind"]
+        out["f11"] = (
+            f"Unwinding costs {u['liq_cost']} per unit plus {u['liq_impact']} per unit "
+            f"squared, and informed\nflow is 30% of arrivals. Mean P&L over seeds:\n\n"
+            f"| setting | strategy | P&L | sd / control | unwind paid | inventory at the close |\n"
+            f"|---|---|---|---|---|---|\n" + "\n".join(rows) + "\n\n"
+            f"The steady-state quoter against the never-skewed control, paired on the same "
+            f"paths:\n\n| setting | difference | 95% interval | |\n|---|---|---|---|\n{pw}\n\n"
+            f"The control ends the session holding several times the inventory, and in the "
+            f"idealised\nmodel it hands that inventory back at the mid for nothing. Charge "
+            f"it what a dealer\nactually pays to get flat and the ranking changes sides.")
+
+    d = f.get("f12_adverse_selection")
+    if d:
+        strats = ("symmetric", "avellaneda_stoikov", "glft")
+        header = " | ".join(s_.replace("_", " ") for s_ in strats)
+        rows = "\n".join(
+            f"| {phi} | " + " | ".join(
+                f"{d['table'][phi][s_]['markout_per_fill']['mean']:+.4f}" for s_ in strats) + " |"
+            for phi in sorted(d["table"], key=float))
+        toll = " | ".join(f"{d['toll'][s_]:.2f}" for s_ in strats)
+        out["f12"] = (
+            f"Mean markout per fill, {d['markout_steps']} steps after the trade, against the "
+            f"mid at the\ntime of the fill. Negative is the market moving through the "
+            f"dealer's quote:\n\n"
+            f"| informed fraction phi | {header} |\n" + "|---" * (len(strats) + 1) + "|\n"
+            + rows + "\n\n"
+            f"P&L given up to the informed flow, price points per session:\n\n"
+            f"| {header} |\n" + "|---" * len(strats) + "|\n"
+            f"| {toll} |\n\n"
+            f"The three quoting rules mark out within "
+            f"{d['markout_spread']:.4f} of each other and give up within "
+            f"{d['toll_spread']:.2f}\nof the same P&L. Leaning against inventory is "
+            f"protection against holding the wrong\nposition, not against being picked "
+            f"off: the quoting rule never sees the information,\nso it cannot avoid it. "
+            f"Anything that does has to come from the flow itself.")
+
     return out
 
 

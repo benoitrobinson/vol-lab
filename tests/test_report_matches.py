@@ -30,8 +30,9 @@ def test_artifact_records_its_provenance(f):
 
 def test_every_finding_is_present(f):
     for key in ("f1_discretisation", "f2_lockin", "f3_attribution", "f4_jump_floor",
-                "f5_schedules", "f6_surface", "f7_market_making",
-                "convergence", "variance_reduction"):
+                "f5_schedules", "f6_surface", "f7_market_making", "f8_inverse",
+                "f9_rough_vol_floor", "f10_rough_skew", "f11_unwind",
+                "f12_adverse_selection", "convergence", "variance_reduction"):
         assert key in f
 
 
@@ -155,7 +156,8 @@ def test_no_headline_number_is_absent_from_the_artifact():
     root = Path(__file__).resolve().parent.parent
     text = (root / "REPORT.md").read_text()
     assert "<!-- BEGIN:f1 -->" in text and "<!-- END:numerics -->" in text
-    for marker in ("f1", "f2", "f3", "f4", "f5", "f6", "f7", "numerics"):
+    for marker in ("f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10",
+                   "f11", "f12", "numerics"):
         start = text.index(f"<!-- BEGIN:{marker} -->")
         end = text.index(f"<!-- END:{marker} -->")
         assert end - start > 80, f"block {marker} looks empty"
@@ -181,3 +183,61 @@ def test_f8_mismatch_grows_with_spot(f):
     pct = [abs(r["gap_pct"]) for r in d["mismatch"]]
     assert pct == sorted(pct), "the converted-delta error should grow with spot"
     assert max(pct) > 20.0
+
+
+def test_f9_the_floor_is_set_by_vol_of_vol_not_by_roughness(f):
+    d = f["f9_rough_vol_floor"]
+    flat = d["sweep"]["0.0"]["slope"]["mean"]
+    floored = d["sweep"][str(max(d["etas"]))]
+    assert abs(flat - (-0.5)) < 0.05, "eta = 0 must reproduce Black-Scholes"
+    assert floored["slope"]["mean"] > -0.2
+    assert floored["sd_ratio"]["mean"] > 0.5
+    # A nearly smooth variance floors in the same place as a rough one.
+    assert abs(d["roughness_control"]["sd_ratio"]["mean"]
+               - floored["sd_ratio"]["mean"]) < 0.15
+
+
+def test_f9_the_floor_deepens_with_every_step_of_vol_of_vol(f):
+    d = f["f9_rough_vol_floor"]
+    slopes = [d["sweep"][str(e)]["slope"]["mean"] for e in sorted(d["etas"])]
+    assert all(b > a for a, b in zip(slopes, slopes[1:]))
+
+
+def test_f10_only_the_rough_model_has_an_exploding_short_dated_skew(f):
+    d = f["f10_rough_skew"]
+    rough = d["models"]["rbergomi"]["slope"]
+    heston = d["models"]["heston"]["slope"]
+    assert rough < -0.2, "the rough skew must steepen as maturity shrinks"
+    assert heston > rough + 0.15, "the diffusive control must be much flatter"
+    assert abs(rough - d["theoretical_slope"]) < 0.2
+
+
+def test_f11_charging_for_the_unwind_changes_the_ranking(f):
+    d = f["f11_unwind"]
+    free = d["pairwise"]["frictionless"]
+    charged = d["pairwise"]["unwind"]
+    assert charged["diff"] > free["diff"] + 1.0
+    assert not charged["straddles_zero"]
+    control = d["table"]["unwind"]["symmetric"]["unwind_paid"]["mean"]
+    skewed = d["table"]["unwind"]["glft"]["unwind_paid"]["mean"]
+    assert control > 2 * skewed, "the control is the strategy the free unwind subsidised"
+
+
+def test_f11_the_dispersion_advantage_is_not_an_artefact_of_the_free_unwind(f):
+    d = f["f11_unwind"]
+    for setting in ("frictionless", "unwind", "informed", "both"):
+        ratio = d["table"][setting]["glft"]["sd_vs_control"]["mean"]
+        assert ratio < 0.6, f"{setting}: dispersion ratio {ratio:.3f}"
+
+
+def test_f12_adverse_selection_is_indifferent_to_the_quoting_rule(f):
+    d = f["f12_adverse_selection"]
+    base = d["table"]["0.0"]
+    informed = d["table"][str(sorted(map(float, d["table"]))[1])]
+    for strat, row in base.items():
+        assert abs(row["markout_per_fill"]["mean"]) < 0.01, "uninformed flow must mark out at zero"
+    for strat, row in informed.items():
+        assert row["markout_per_fill"]["mean"] < -0.01
+    assert d["markout_spread"] < 0.1 * abs(
+        informed["glft"]["markout_per_fill"]["mean"])
+    assert d["toll_spread"] < 1.0

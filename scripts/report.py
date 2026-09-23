@@ -30,9 +30,11 @@ from vollab.metrics.variance_reduction import (
 )
 from vollab.mm.quoting import DealerParams, MarketParams
 from vollab.mm.simulate import simulate_mm
-from vollab.paths.base import GBM, Merton
+from vollab.paths.base import GBM, Merton, RoughBergomi
+from vollab.paths.heston import heston_paths
+from vollab.paths.rbergomi import rbergomi_paths
 from vollab.rng.scheme import normals_block
-from vollab.pricing.black_scholes import bs_price
+from vollab.pricing.black_scholes import bs_implied_vol, bs_price
 from vollab.pricing.inverse import (
     fiat_delta_mismatch, inverse_payoff, inverse_price, share_measure_drift,
 )
@@ -361,6 +363,149 @@ def variance_reduction_study(n_paths, seed):
             "antithetic_note": "hedging error is even in z, so mirroring is a no-op"}
 
 
+def f9_rough_vol_floor(n_paths, seeds, etas=(0.0, 0.5, 1.0, 1.5), H=0.10, rho=-0.7):
+    """Vol-of-vol floors the hedging error; roughness does not move the floor."""
+    out = {"H": H, "rho": rho, "etas": [float(e) for e in etas], "sweep": {}}
+
+    def curve(model, seed):
+        res = sweep(cfg(seed, n_paths, model=model), [FixedTime(e) for e in EVERY])
+        n = np.array([r.n_rehedges.mean() for r in res])
+        sd = np.array([r.pnl.std(ddof=1) for r in res])
+        return n, sd
+
+    for eta in etas:
+        slopes, ratios, curves, grids = [], [], [], []
+        for s in seeds:
+            n, sd = curve(RoughBergomi(H=H, eta=eta, rho=rho), s)
+            slopes.append(slope(n, sd)); ratios.append(sd[-1] / sd[0])
+            curves.append(sd); grids.append(n)
+        curves = np.array(curves)
+        out["sweep"][str(eta)] = {
+            "slope": ms(slopes), "sd_ratio": ms(ratios), "sd_dense": ms([c[-1] for c in curves]),
+            "rehedges": np.array(grids).mean(axis=0).tolist(),
+            "sd_curve_mean": curves.mean(axis=0).tolist(),
+        }
+
+    # The roughness control, at the vol-of-vol that floors hardest. If the floor
+    # were about roughness rather than about vega, these two would differ.
+    smooth_slopes, smooth_ratios = [], []
+    for s in seeds:
+        n, sd = curve(RoughBergomi(H=0.45, eta=max(etas), rho=rho), s)
+        smooth_slopes.append(slope(n, sd)); smooth_ratios.append(sd[-1] / sd[0])
+    out["roughness_control"] = {"H": 0.45, "eta": float(max(etas)),
+                                "slope": ms(smooth_slopes), "sd_ratio": ms(smooth_ratios)}
+    return out
+
+
+def f10_rough_skew(n_paths, seed, maturities=(0.02, 0.05, 0.1, 0.25, 0.5)):
+    """The at-the-money skew as a power law in maturity, against a diffusion."""
+    H, eta, rho, xi0 = 0.10, 1.9, -0.9, 0.04
+    dk = 0.02
+    out = {"H": H, "eta": eta, "rho": rho, "xi0": xi0, "n_paths": n_paths,
+           "maturities": list(maturities), "log_moneyness": dk, "models": {}}
+
+    def skew_of(prices_fn):
+        skews = []
+        for T in maturities:
+            st = prices_fn(T)
+            vols = []
+            for k in (-dk, dk):
+                strike = 100.0 * np.exp(k)
+                price = float(np.maximum(st - strike, 0.0).mean())
+                vols.append(bs_implied_vol("call", price, 100.0, strike, T, 0.0, 0.0))
+            skews.append(abs(vols[1] - vols[0]) / (2 * dk))
+        return skews
+
+    rough = skew_of(lambda T: rbergomi_paths(
+        100.0, 0.0, 0.0, T, max(32, int(2000 * T)), seed, 0, n_paths,
+        xi0, H, eta, rho)[:, -1])
+    # Heston with the same initial variance, a vol-of-vol chosen to match the
+    # level of the smile, and the same correlation. A diffusive variance cannot
+    # produce an exploding short-dated skew, whatever its parameters.
+    heston = skew_of(lambda T: heston_paths(
+        100.0, 0.0, 0.0, T, max(32, int(2000 * T)), seed, 0, n_paths,
+        xi0, 1.0, xi0, 1.0, rho)[:, -1])
+
+    for label, skews in (("rbergomi", rough), ("heston", heston)):
+        out["models"][label] = {
+            "skews": [float(s) for s in skews],
+            "slope": float(np.polyfit(np.log(maturities), np.log(skews), 1)[0]),
+        }
+    out["theoretical_slope"] = H - 0.5
+    return out
+
+
+MM_UNWIND = {"liq_cost": 0.5, "liq_impact": 0.005}
+MM_PHI = 0.3
+MM_STRATS = ("avellaneda_stoikov", "glft", "symmetric")
+
+
+def _mm_settings(n_paths, seed):
+    settings = {
+        "frictionless": (0.0, 0.0, 0.0),
+        "unwind": (0.0, MM_UNWIND["liq_cost"], MM_UNWIND["liq_impact"]),
+        "informed": (MM_PHI, 0.0, 0.0),
+        "both": (MM_PHI, MM_UNWIND["liq_cost"], MM_UNWIND["liq_impact"]),
+    }
+    runs = {}
+    for label, (phi, liq, imp) in settings.items():
+        market = MarketParams(phi=phi)
+        dealer = DealerParams(gam=0.1, liq_cost=liq, liq_impact=imp)
+        runs[label] = {s_: simulate_mm(market, dealer, s_, seed=seed, n_paths=n_paths)
+                       for s_ in MM_STRATS}
+    return runs
+
+
+def f11_unwind(n_paths, seeds):
+    """The free unwind is what kept the never-skewed control competitive."""
+    out = {"unwind": MM_UNWIND, "n_paths": n_paths, "table": {}, "pairwise": {}}
+    per_seed = [_mm_settings(n_paths, s) for s in seeds]
+    for label in ("frictionless", "unwind", "informed", "both"):
+        row = {}
+        for s_ in MM_STRATS:
+            pnl = [r[label][s_].pnl.mean() for r in per_seed]
+            sd = [r[label][s_].pnl.std(ddof=1) for r in per_seed]
+            paid = [r[label][s_].liq_paid.mean() for r in per_seed]
+            inv = [np.abs(r[label][s_].inventory_end).mean() for r in per_seed]
+            ctrl = [r[label]["symmetric"].pnl.std(ddof=1) for r in per_seed]
+            row[s_] = {"pnl": ms(pnl), "sd": ms(sd), "unwind_paid": ms(paid),
+                       "end_inventory": ms(inv),
+                       "sd_vs_control": ms([a / b for a, b in zip(sd, ctrl)])}
+        out["table"][label] = row
+
+    for label in ("frictionless", "unwind", "both"):
+        runs = per_seed[0][label]
+        diff, lo, hi = paired_bootstrap(runs["glft"].pnl, runs["symmetric"].pnl, n_boot=2000)
+        out["pairwise"][label] = {"diff": diff, "ci_low": lo, "ci_high": hi,
+                                  "straddles_zero": bool(lo <= 0 <= hi)}
+    return out
+
+
+def f12_adverse_selection(n_paths, seeds, phis=(0.0, 0.3, 0.6)):
+    """Informed flow costs every strategy the same amount."""
+    out = {"phis": [float(p) for p in phis], "markout_steps": MarketParams().markout_steps,
+           "n_paths": n_paths, "table": {}}
+    for phi in phis:
+        market = MarketParams(phi=phi)
+        dealer = DealerParams(gam=0.1)
+        row = {}
+        for s_ in MM_STRATS:
+            marks, pnls = [], []
+            for s in seeds:
+                r = simulate_mm(market, dealer, s_, seed=s, n_paths=n_paths)
+                marks.append(r.markout_per_fill()); pnls.append(r.pnl.mean())
+            row[s_] = {"markout_per_fill": ms(marks), "pnl": ms(pnls)}
+        out["table"][str(phi)] = row
+
+    base = out["table"]["0.0"]
+    informed = out["table"][str(phis[1])]
+    out["toll"] = {s_: base[s_]["pnl"]["mean"] - informed[s_]["pnl"]["mean"] for s_ in MM_STRATS}
+    out["toll_spread"] = max(out["toll"].values()) - min(out["toll"].values())
+    marks = [informed[s_]["markout_per_fill"]["mean"] for s_ in MM_STRATS]
+    out["markout_spread"] = max(marks) - min(marks)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true",
@@ -375,6 +520,13 @@ def main():
     seeds = SEEDS[:2] if args.quick else SEEDS
     n_reps = 5 if args.quick else 30
     mm_paths = 1000 if args.quick else 4000
+    # The rough-volatility sweeps are the most expensive thing here: five
+    # frequencies of a Volterra convolution per seed. Three seeds at 4,000
+    # paths keeps the whole report inside ten minutes and still reports a
+    # spread across seeds.
+    rough_paths = 500 if args.quick else 4000
+    rough_seeds = SEEDS[:1] if args.quick else SEEDS[:3]
+    skew_paths = 5_000 if args.quick else 60_000
 
     t0 = time.time()
     findings = {
@@ -396,6 +548,10 @@ def main():
         "f6_surface": f6_surface(n_reps, seeds),
         "f7_market_making": f7_market_making(mm_paths, seeds),
         "f8_inverse": f8_inverse_options(max(n_paths * 10, 40_000), seeds[0]),
+        "f9_rough_vol_floor": f9_rough_vol_floor(rough_paths, rough_seeds),
+        "f10_rough_skew": f10_rough_skew(skew_paths, seeds[0]),
+        "f11_unwind": f11_unwind(mm_paths, seeds),
+        "f12_adverse_selection": f12_adverse_selection(mm_paths, seeds),
         "convergence": convergence(seeds),
         "variance_reduction": variance_reduction_study(n_paths, seeds[0]),
     }
