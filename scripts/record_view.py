@@ -30,9 +30,10 @@ FIRST_PAINT = "vol-lab"   # the header title: the first frame worth showing
 # readable; every run finishes well inside the wait that follows it.
 SCRIPT = [
     (3.5, None),      # import numpy, scipy and textual, then draw
-    (2.5, DOWN),      # lessons: walk down the findings
-    (2.5, DOWN),
-    (2.5, "3"),       # surface
+    (2.2, DOWN),      # lessons: walk down the findings
+    (2.2, DOWN * 8),  # jump to rough volatility
+    (2.6, DOWN * 3),  # and on to the two market-making frictions
+    (2.6, "3"),       # surface
     (0.5, "r"),       # fit SVI: the smile and the density it implies
     (5.0, "4"),       # hedge
     (0.5, "r"),       # terminal P&L and the full explain
