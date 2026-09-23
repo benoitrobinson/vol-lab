@@ -30,12 +30,25 @@ class MarketParams:
     T: float = 1.0
     n_steps: int = 200
     s0: float = 100.0
+    # Adverse selection. A fraction of the flow is informed: it arrives on the
+    # side the mid is about to move towards, so the dealer's fills are worse
+    # than a coin flip. phi = 0 is the Avellaneda-Stoikov idealisation, where
+    # fills carry no information and markouts are zero by construction.
+    phi: float = 0.0
+    # Horizon in steps over which a fill is marked out.
+    markout_steps: int = 10
 
 
 @dataclass(frozen=True)
 class DealerParams:
     gam: float = 0.1          # inventory risk aversion
     max_inventory: int = 50   # hard position limit; quotes are pulled at the cap
+    # What it costs to go home flat. Marking terminal inventory at the mid
+    # assumes the dealer can unwind for free, which flatters whichever strategy
+    # carries the most inventory. liq_cost is paid per unit crossed, liq_impact
+    # per unit squared.
+    liq_cost: float = 0.0
+    liq_impact: float = 0.0
 
 
 def reservation_price(s, q, gam, sigma, tau):

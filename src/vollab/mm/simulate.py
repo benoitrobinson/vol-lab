@@ -32,12 +32,27 @@ STRATEGIES = {"avellaneda_stoikov": optimal_half_spreads,
 
 @dataclass(frozen=True)
 class MMResult:
-    pnl: np.ndarray            # (n_paths,) terminal wealth
+    pnl: np.ndarray            # (n_paths,) terminal wealth, after unwinding
     inventory_end: np.ndarray  # (n_paths,)
     inventory_max_abs: np.ndarray
     n_fills: np.ndarray
     spread_captured: np.ndarray
     strategy: str
+    # Terminal inventory marked at the mid, before paying to unwind it. The two
+    # always reconcile: pnl = pnl_gross - liq_paid.
+    pnl_gross: np.ndarray = None
+    liq_paid: np.ndarray = None
+    # Summed over fills: the mid at the markout horizon against the fill price,
+    # signed so a positive number means the market moved the dealer's way.
+    # Negative is adverse selection.
+    markout: np.ndarray = None
+
+    def markout_per_fill(self):
+        """Mean markout per fill, averaged over the paths that traded."""
+        traded = self.n_fills > 0
+        if not traded.any():
+            return 0.0
+        return float((self.markout[traded] / self.n_fills[traded]).mean())
 
 
 def simulate_mm(market, dealer, strategy, seed, n_paths, path_start=0):
@@ -48,20 +63,31 @@ def simulate_mm(market, dealer, strategy, seed, n_paths, path_start=0):
 
     n, dt = market.n_steps, market.T / market.n_steps
     sq = np.sqrt(dt)
+    phi = getattr(market, "phi", 0.0)
+    h = getattr(market, "markout_steps", 10)
 
     dz = normals_block(seed, path_start, n_paths, n)
     # Fill draws come from a salted stream so they are disjoint from the mid.
     u = uniforms_block(seed ^ JUMP_STREAM_SALT, path_start, n_paths, 2 * n)
 
-    s = np.full(n_paths, float(market.s0))
+    # The whole mid path up front: the markout needs the future mid, and the
+    # informed flow below needs the step the mid is about to take. Neither is
+    # visible to the quoting rule, which only ever sees s[:, i].
+    mid = np.empty((n_paths, n + 1), dtype=np.float64)
+    mid[:, 0] = float(market.s0)
+    np.cumsum(market.sigma * sq * dz, axis=1, out=mid[:, 1:])
+    mid[:, 1:] += float(market.s0)
+
     q = np.zeros(n_paths, dtype=np.int64)
     cash = np.zeros(n_paths)
     inv_max = np.zeros(n_paths, dtype=np.int64)
     fills = np.zeros(n_paths, dtype=np.int64)
     captured = np.zeros(n_paths)
+    markout = np.zeros(n_paths)
 
     for i in range(n):
         tau = market.T - i * dt
+        s = mid[:, i]
         d_a, d_b = half_spreads(q, dealer.gam, market.sigma, tau, market.kappa)
 
         # Half-spreads are not floored at zero. A heavily long dealer quotes an
@@ -69,6 +95,16 @@ def simulate_mm(market, dealer, strategy, seed, n_paths, path_start=0):
         # artefact; the fill probability is what gets capped.
         p_a = np.clip(market.A * np.exp(-market.kappa * d_a) * dt, 0.0, 1.0)
         p_b = np.clip(market.A * np.exp(-market.kappa * d_b) * dt, 0.0, 1.0)
+
+        if phi:
+            # Informed flow. A fraction phi of the arrivals know the next move,
+            # so buyers lift the ask more often when the mid is about to rise
+            # and sellers hit the bid more often when it is about to fall. The
+            # unconditional arrival rate is unchanged: what changes is which
+            # side arrives, which is exactly what adverse selection means.
+            up = np.sign(dz[:, i])
+            p_a = np.clip(p_a * (1.0 + phi * up), 0.0, 1.0)
+            p_b = np.clip(p_b * (1.0 - phi * up), 0.0, 1.0)
 
         # A dealer at its position limit stops quoting the side that would breach it.
         can_sell = q > -dealer.max_inventory
@@ -80,17 +116,31 @@ def simulate_mm(market, dealer, strategy, seed, n_paths, path_start=0):
         cash += np.where(hit_ask, s + d_a, 0.0)
         cash -= np.where(hit_bid, s - d_b, 0.0)
         captured += np.where(hit_ask, d_a, 0.0) + np.where(hit_bid, d_b, 0.0)
+
+        # Markout against the mid at the time of the fill, not against the fill
+        # price: the half-spread is already counted in `captured`, and mixing
+        # the two hides the thing worth measuring. Sold, so the dealer wants
+        # the mid lower h steps later; bought, so it wants it higher.
+        future = mid[:, min(i + h, n)]
+        markout += np.where(hit_ask, s - future, 0.0)
+        markout += np.where(hit_bid, future - s, 0.0)
+
         q = q + hit_bid.astype(np.int64) - hit_ask.astype(np.int64)
         fills += hit_ask.astype(np.int64) + hit_bid.astype(np.int64)
         inv_max = np.maximum(inv_max, np.abs(q))
 
-        s = s + market.sigma * sq * dz[:, i]
+    gross = cash + q * mid[:, n]
+    liq = (np.abs(q) * getattr(dealer, "liq_cost", 0.0)
+           + q.astype(np.float64) ** 2 * getattr(dealer, "liq_impact", 0.0))
 
     return MMResult(
-        pnl=cash + q * s,
+        pnl=gross - liq,
         inventory_end=q,
         inventory_max_abs=inv_max,
         n_fills=fills,
         spread_captured=captured,
         strategy=strategy,
+        pnl_gross=gross,
+        liq_paid=liq,
+        markout=markout,
     )
