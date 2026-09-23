@@ -32,7 +32,8 @@ def test_every_finding_is_present(f):
     for key in ("f1_discretisation", "f2_lockin", "f3_attribution", "f4_jump_floor",
                 "f5_schedules", "f6_surface", "f7_market_making", "f8_inverse",
                 "f9_rough_vol_floor", "f10_rough_skew", "f11_unwind",
-                "f12_adverse_selection", "convergence", "variance_reduction"):
+                "f12_adverse_selection", "f13_minimum_variance",
+                "convergence", "variance_reduction"):
         assert key in f
 
 
@@ -157,7 +158,7 @@ def test_no_headline_number_is_absent_from_the_artifact():
     text = (root / "REPORT.md").read_text()
     assert "<!-- BEGIN:f1 -->" in text and "<!-- END:numerics -->" in text
     for marker in ("f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10",
-                   "f11", "f12", "numerics"):
+                   "f11", "f12", "f13", "numerics"):
         start = text.index(f"<!-- BEGIN:{marker} -->")
         end = text.index(f"<!-- END:{marker} -->")
         assert end - start > 80, f"block {marker} looks empty"
@@ -241,3 +242,18 @@ def test_f12_adverse_selection_is_indifferent_to_the_quoting_rule(f):
     assert d["markout_spread"] < 0.1 * abs(
         informed["glft"]["markout_per_fill"]["mean"])
     assert d["toll_spread"] < 1.0
+
+
+def test_f13_the_minimum_variance_delta_helps_and_the_smile_does_not(f):
+    d = f["f13_minimum_variance"]
+    rough = d["table"]["rough"]
+    gbm = d["table"]["gbm"]
+    assert rough["min_variance"]["mean"] < rough["plain"]["mean"]
+    assert rough["sticky_sign"]["mean"] > rough["plain"]["mean"]
+    assert d["cut_by_min_variance"] > 0.02
+    assert d["cost_of_the_wrong_sign"] > 0.05
+    # The two slopes disagree about direction, which is the finding.
+    assert d["mv_optimum"] * d["slope_the_smile_suggests"] < 0.0
+    # Without vega risk, the adjustment can only add variance.
+    for name in ("min_variance", "sticky_sign"):
+        assert gbm[name]["mean"] > gbm["plain"]["mean"]

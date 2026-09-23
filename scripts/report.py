@@ -506,6 +506,50 @@ def f12_adverse_selection(n_paths, seeds, phis=(0.0, 0.3, 0.6)):
     return out
 
 
+
+MV_OPTIMUM = -0.0015
+STICKY_SIGN = 0.0021
+
+
+def f13_minimum_variance(n_paths, seeds, H=0.10, eta=1.5, rho=-0.7):
+    """The minimum-variance delta, and the sign the smile's slope suggests."""
+    rough = RoughBergomi(H=H, eta=eta, rho=rho)
+    out = {"H": H, "eta": eta, "rho": rho, "mv_optimum": MV_OPTIMUM,
+           "sticky_sign": STICKY_SIGN, "n_mon": 256, "table": {}}
+
+    def sd_for(model, mv, seed):
+        c = cfg(seed, n_paths, model=model, n_mon=256, attribute=False,
+                schedule=FixedTime(1), mv_slope=mv)
+        return float(simulate(c).pnl.std(ddof=1))
+
+    for label, model in (("rough", rough), ("gbm", GBM())):
+        row = {}
+        for name, mv in (("plain", 0.0), ("min_variance", MV_OPTIMUM),
+                         ("sticky_sign", STICKY_SIGN)):
+            row[name] = ms([sd_for(model, mv, s) for s in seeds])
+        out["table"][label] = row
+
+    rough_row = out["table"]["rough"]
+    out["cut_by_min_variance"] = (
+        1.0 - rough_row["min_variance"]["mean"] / rough_row["plain"]["mean"])
+    out["cost_of_the_wrong_sign"] = (
+        rough_row["sticky_sign"]["mean"] / rough_row["plain"]["mean"] - 1.0)
+
+    # What the smile's slope would suggest, measured rather than asserted.
+    st = rbergomi_paths(100.0, 0.0, 0.0, 1.0, 512, seeds[0], 0, 120_000,
+                        0.09, H, eta, rho)[:, -1]
+    dk = 0.02
+    vols = []
+    for k in (-dk, dk):
+        strike = 100.0 * np.exp(k)
+        price = float(np.maximum(st - strike, 0.0).mean())
+        vols.append(bs_implied_vol("call", price, 100.0, strike, 1.0, 0.0, 0.0))
+    skew = (vols[1] - vols[0]) / (2 * dk)
+    out["atm_skew"] = skew
+    out["slope_the_smile_suggests"] = -skew / 100.0
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true",
@@ -552,6 +596,7 @@ def main():
         "f10_rough_skew": f10_rough_skew(skew_paths, seeds[0]),
         "f11_unwind": f11_unwind(mm_paths, seeds),
         "f12_adverse_selection": f12_adverse_selection(mm_paths, seeds),
+        "f13_minimum_variance": f13_minimum_variance(rough_paths, rough_seeds),
         "convergence": convergence(seeds),
         "variance_reduction": variance_reduction_study(n_paths, seeds[0]),
     }

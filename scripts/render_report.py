@@ -302,6 +302,27 @@ def blocks(f):
             f"off: the quoting rule never sees the information,\nso it cannot avoid it. "
             f"Anything that does has to come from the flow itself.")
 
+    d = f.get("f13_minimum_variance")
+    if d:
+        rows = "\n".join(
+            f"| {name.replace('_', ' ')} | {d['table']['rough'][name]['mean']:.4f} "
+            f"+/- {d['table']['rough'][name]['sd']:.4f} | "
+            f"{d['table']['gbm'][name]['mean']:.4f} |"
+            for name in ("plain", "min_variance", "sticky_sign"))
+        out["f13"] = (
+            f"Standard deviation of terminal P&L, hedging a one-year call on a "
+            f"256-step grid,\nrough Bergomi against a GBM control:\n\n"
+            f"| delta used | rough Bergomi | GBM |\n|---|---|---|\n{rows}\n\n"
+            f"The minimum-variance adjustment, at a slope of {d['mv_optimum']}, cuts the "
+            f"error by\n**{d['cut_by_min_variance']:.1%}**. The slope the smile's shape "
+            f"suggests is {d['slope_the_smile_suggests']:+.5f}, from a fitted\n"
+            f"at-the-money skew of {d['atm_skew']:+.4f}, and it has the opposite sign: "
+            f"using it raises the\nerror by **{d['cost_of_the_wrong_sign']:.1%}**.\n\n"
+            f"Under GBM the implied volatility never moves, so there is no vega risk for "
+            f"the extra\nstock to hedge and every adjustment is pure noise. That is the "
+            f"control which says the\ngain on the rough paths is hedging rather than "
+            f"luck.")
+
     return out
 
 

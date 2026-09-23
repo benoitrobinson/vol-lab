@@ -18,7 +18,7 @@ schedule comparison, is in [REPORT.md](REPORT.md).
 
 ![the lab: the findings, an SVI fit, a hedging experiment and the key table](figures/vol-lab-view.gif)
 
-`vl view` is the whole lab in one panel: the twelve findings with the numbers that were
+`vl view` is the whole lab in one panel: the thirteen findings with the numbers that were
 actually measured, then the tools that produced them. Charts are sized to the window,
 so the numbers under a chart stay on screen. The recording is produced by
 `scripts/record_view.py` from the keys the panel binds, so it cannot drift into
@@ -26,7 +26,7 @@ advertising a control that no longer exists.
 
 ## Findings
 
-Twelve findings, each with a test that fails if the engine is wrong and a command that
+Thirteen findings, each with a test that fails if the engine is wrong and a command that
 regenerates it. Numbers below are means over 5 seeds; the full write-up with
 uncertainties, figures and stated limitations is in [REPORT.md](REPORT.md).
 
@@ -44,6 +44,7 @@ uncertainties, figures and stated limitations is in [REPORT.md](REPORT.md).
 | 10 | Only a rough variance makes the short-dated skew explode | fitted power law **-0.399** against theory -0.40; Heston -0.083 |
 | 11 | The free unwind was carrying the never-skewed control | paired difference moves from -0.28 (straddles zero) to **+2.54** [+2.20, +2.90] |
 | 12 | Adverse selection costs every quoting rule the same | markouts within **0.00015** of each other, P&L within 0.51 |
+| 13 | The smile's slope is not a hedge ratio | the minimum-variance delta cuts the rough-vol error by **4.0%**; the opposite sign the smile suggests costs **15.4%** |
 
 Two numerical results worth their own line: a control variate derived from finding 1
 (`sum(z^2-1)`) cuts estimator variance to **0.35**, while the textbook choice
@@ -89,7 +90,7 @@ for a command on your PATH.
 
 | tab | what it holds |
 |-----|---------------|
-| 1 lessons | the twelve findings: the question a desk would ask, why it happens, so what, and the measured numbers read live from `artifacts/findings.json` |
+| 1 lessons | the thirteen findings: the question a desk would ask, why it happens, so what, and the measured numbers read live from `artifacts/findings.json` |
 | 2 price | Black-Scholes and coin-settled prices, greeks, delta against spot |
 | 3 surface | SVI calibration, smile and implied density. The unconstrained button shows the density going negative |
 | 4 hedge | one hedging experiment: P&L histogram and the full explain |
