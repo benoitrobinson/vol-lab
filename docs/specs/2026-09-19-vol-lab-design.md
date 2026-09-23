@@ -148,7 +148,7 @@ vol-lab/
     cli.py
   cpp/          include/vollab/{philox,paths,hedge}.hpp src/ bindings.cpp CMakeLists.txt
   configs/      *.toml
-  tests/  REPORT.md  docs/superpowers/specs/
+  tests/  REPORT.md  docs/specs/
 ```
 
 Dependency graph, corrected from v1:

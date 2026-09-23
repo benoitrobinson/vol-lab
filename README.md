@@ -1,5 +1,7 @@
 # vol-lab
 
+[![ci](https://github.com/benoitrobinson/vol-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/benoitrobinson/vol-lab/actions/workflows/ci.yml)
+
 A terminal laboratory for the three questions an options market maker answers every
 day: what does it cost me to hedge, is my surface a set of real prices, and where do I
 quote?
