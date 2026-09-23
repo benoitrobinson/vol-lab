@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from vollab.paths.gbm import gbm_paths
 from vollab.paths.heston import heston_paths
 from vollab.paths.merton import merton_paths
+from vollab.paths.rbergomi import rbergomi_paths
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,16 @@ class Heston:
 
 
 @dataclass(frozen=True)
+class RoughBergomi:
+    """H below 1/2 is the rough regime; H = 1/2 is a lognormal Bergomi model."""
+
+    H: float
+    eta: float
+    rho: float
+    name: str = "rbergomi"
+
+
+@dataclass(frozen=True)
 class Merton:
     lam: float
     mu_J: float
@@ -34,7 +45,8 @@ class Merton:
     name: str = "merton"
 
 
-MODELS = {"gbm": GBM, "heston": Heston, "merton": Merton}
+MODELS = {"gbm": GBM, "heston": Heston, "merton": Merton,
+          "rbergomi": RoughBergomi}
 
 
 def generate(model, c, v, n_mon, seed, path_start, n_paths, mu=None):
@@ -50,4 +62,9 @@ def generate(model, c, v, n_mon, seed, path_start, n_paths, mu=None):
         return heston_paths(c.S0, c.r, c.q, c.T, n_mon, seed, path_start, n_paths,
                             v.s_real ** 2, model.kap_h, model.th_h,
                             model.xi, model.rho, mu)
+    if isinstance(model, RoughBergomi):
+        # s_real is the initial volatility, so the flat forward variance curve
+        # starts at its square.
+        return rbergomi_paths(c.S0, c.r, c.q, c.T, n_mon, seed, path_start, n_paths,
+                              v.s_real ** 2, model.H, model.eta, model.rho, mu)
     raise ValueError(f"unknown model {model!r}")

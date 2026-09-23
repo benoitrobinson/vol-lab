@@ -18,7 +18,7 @@ RNG_SCHEME_VERSION = 1
 # discard what the taken branch did not use, so a data-dependent branch cannot
 # desynchronise the two streams. Merton is 1 because its jump times are keyed
 # per path and are therefore independent of the step grid.
-DRAWS_PER_STEP = {"gbm": 1, "heston": 3, "merton": 1}
+DRAWS_PER_STEP = {"gbm": 1, "heston": 3, "merton": 1, "rbergomi": 3}
 
 
 def _uniforms(seed, path_index, n):

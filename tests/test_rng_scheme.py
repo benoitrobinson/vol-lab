@@ -7,8 +7,11 @@ from vollab.rng.scheme import (
 
 
 def test_scheme_version_is_pinned():
+    """The version tracks the streams, not the model list. Adding rough Bergomi
+    gave a new model its own budget and moved no existing one, so every run
+    recorded under version 1 still replays to the same paths."""
     assert RNG_SCHEME_VERSION == 1
-    assert DRAWS_PER_STEP == {"gbm": 1, "heston": 3, "merton": 1}
+    assert DRAWS_PER_STEP == {"gbm": 1, "heston": 3, "merton": 1, "rbergomi": 3}
 
 
 def test_same_key_gives_same_stream():
