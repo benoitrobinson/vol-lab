@@ -153,6 +153,76 @@ LESSONS = [
             "payoff under the dollar measure is not the coin price."
         ),
     ),
+    Lesson(
+        key="f9_rough_vol_floor",
+        title="9. Vol-of-vol floors the hedging error",
+        question="If I rehedge fast enough, does the risk go away?",
+        mechanism=(
+            "A delta hedge removes the dS term. Under stochastic volatility the "
+            "option also moves with the variance, and no amount of trading the "
+            "underlying removes that. Refining the grid drives the discretisation "
+            "term to zero and leaves the vega term, whose variance does not depend "
+            "on how often you trade."
+        ),
+        takeaway=(
+            "The error stalls at a floor set by eta, the volatility of volatility. "
+            "Roughness H does not move the floor: a nearly smooth variance floors in "
+            "the same place. That is worth knowing, because roughness is usually "
+            "introduced as a hedging story and it is really a smile story."
+        ),
+    ),
+    Lesson(
+        key="f10_rough_skew",
+        title="10. Rough variance and the short-dated skew",
+        question="Why does the one-week skew steepen faster than my model says?",
+        mechanism=(
+            "When the variance is a diffusion its increments over a week are tiny, "
+            "so the at-the-money skew flattens out as maturity shrinks. A Volterra "
+            "kernel with exponent H - 1/2 lets the variance move enough at short "
+            "horizons that the skew scales as T^(H - 1/2) instead."
+        ),
+        takeaway=(
+            "Measured against a Heston control with the same correlation and initial "
+            "variance: the rough model's skew follows a power law close to the "
+            "theoretical exponent, and Heston's is nearly flat. For anyone quoting "
+            "weeklies that is the difference between a surface that fits and one "
+            "that cannot."
+        ),
+    ),
+    Lesson(
+        key="f11_unwind",
+        title="11. What it costs to go home flat",
+        question="My backtest marks leftover inventory at the mid. Is that fair?",
+        mechanism=(
+            "The mid is the one price at which nobody trades. A dealer closing a "
+            "position crosses the spread and moves the market it is crossing, and "
+            "the strategy left holding the most inventory is the one that subsidy "
+            "flatters most. Here that is the never-skewed control."
+        ),
+        takeaway=(
+            "Charge a half-spread plus a quadratic impact term and the mean-P&L "
+            "comparison that straddled zero turns decisive for the steady-state "
+            "quoter. The dispersion advantage does not move, so finding 7 was real "
+            "and was also measured in a world too kind to its control."
+        ),
+    ),
+    Lesson(
+        key="f12_adverse_selection",
+        title="12. Adverse selection does not care how you quote",
+        question="Does leaning against inventory protect me from informed flow?",
+        mechanism=(
+            "Inventory skew is a function of the position, and the position is a "
+            "consequence of past fills. Information is a property of the next fill. "
+            "Making a fraction of arrivals informed, so they trade just before the "
+            "mid moves, leaves every quoting rule marking out the same amount."
+        ),
+        takeaway=(
+            "No. The markout per fill falls by the same amount whatever the rule, "
+            "and the P&L toll is the same within noise. Protection has to come from "
+            "reading the flow, quoting wider when it looks informed, or standing "
+            "aside, none of which this model can do."
+        ),
+    ),
 ]
 
 BY_KEY = {lesson.key: lesson for lesson in LESSONS}

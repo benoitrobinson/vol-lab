@@ -163,6 +163,46 @@ def lesson_body(lesson, findings):
         out += [f"    spot {r['spot']:6.0f}   coin {r['coin_delta']:.6f}"
                 f"   converted {r['naive_delta']:.6f}   off by {r['gap_pct']:.1f}%"
                 for r in f["mismatch"]]
+    elif lesson.key == "f9_rough_vol_floor":
+        out.append(f"  rough Bergomi, H = {f['H']}, hedged with a Black-Scholes delta:")
+        for eta in sorted(f["sweep"], key=float):
+            v = f["sweep"][eta]
+            out.append(f"    eta {eta:>4s}   slope {_fmt(v['slope'], 3)}"
+                       f"   sd dense/sparse {v['sd_ratio']['mean']:.3f}")
+        rc = f["roughness_control"]
+        out += ["", f"  roughness control  H {rc['H']} at eta {rc['eta']}:"
+                    f" slope {_fmt(rc['slope'], 3)}"
+                    f"   ratio {rc['sd_ratio']['mean']:.3f}"]
+    elif lesson.key == "f10_rough_skew":
+        rough, hes = f["models"]["rbergomi"], f["models"]["heston"]
+        out.append("  at-the-money skew by maturity:")
+        for i, T in enumerate(f["maturities"]):
+            out.append(f"    T {T:5.2f}   rough {rough['skews'][i]:7.3f}"
+                       f"   Heston {hes['skews'][i]:7.3f}")
+        out += ["", f"  fitted power law   rough {rough['slope']:+.3f}"
+                    f"   Heston {hes['slope']:+.3f}"
+                    f"   theory {f['theoretical_slope']:+.2f}"]
+    elif lesson.key == "f11_unwind":
+        for setting in ("frictionless", "unwind", "informed", "both"):
+            row = f["table"][setting]
+            cells = "  ".join(
+                f"{s_.split('_')[0]:>6s} {row[s_]['pnl']['mean']:6.2f}"
+                for s_ in ("symmetric", "avellaneda_stoikov", "glft"))
+            out.append(f"    {setting:13s} {cells}")
+        out.append("")
+        for setting, v in f["pairwise"].items():
+            out.append(f"    steady state minus control, {setting:13s}"
+                       f" {v['diff']:+.3f} [{v['ci_low']:+.3f}, {v['ci_high']:+.3f}]")
+    elif lesson.key == "f12_adverse_selection":
+        out.append(f"  markout per fill, {f['markout_steps']} steps after the trade:")
+        for phi in sorted(f["table"], key=float):
+            row = f["table"][phi]
+            cells = "  ".join(
+                f"{s_.split('_')[0]:>6s} {row[s_]['markout_per_fill']['mean']:+.4f}"
+                for s_ in ("symmetric", "avellaneda_stoikov", "glft"))
+            out.append(f"    phi {phi:>4s}   {cells}")
+        out += ["", f"  spread across strategies  markout {f['markout_spread']:.4f}"
+                    f"   P&L toll {f['toll_spread']:.2f}"]
     return "\n".join(out)
 
 
