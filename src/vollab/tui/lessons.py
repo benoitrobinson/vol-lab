@@ -220,7 +220,8 @@ LESSONS = [
             "No. The markout per fill falls by the same amount whatever the rule, "
             "and the P&L toll is the same within noise. Protection has to come from "
             "reading the flow, quoting wider when it looks informed, or standing "
-            "aside, none of which this model can do."
+            "aside, none of which this model can do. That is the question lob-lab "
+            "inherits, on real order-book data."
         ),
     ),
 ]

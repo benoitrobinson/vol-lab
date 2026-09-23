@@ -230,6 +230,16 @@ All three modules built.
 Every finding is in [REPORT.md](REPORT.md), each with a test that fails if the engine
 is wrong and a command that regenerates it.
 
+## Where this leads
+
+Finding 12 says inventory skew is no protection against informed flow, because a quoting
+rule sees the position and never the next fill. [`lob-lab`](https://github.com/benoitrobinson/lob-lab)
+takes that as its premise on real Deribit data: it rebuilds the book from the public feed,
+measures order flow imbalance, and asks what standing aside on the strength of it costs in
+fills. [`contract-lab`](https://github.com/benoitrobinson/contract-lab) takes the other
+thread, the smile, and prices contracts as an algebra: an SVI slice exported from here
+shows a digital priced as a call spread sitting hundreds of basis points away from N(d2).
+
 ## References
 
 - Boyle, P. and Emanuel, D. (1980). Discretely adjusted option hedges.

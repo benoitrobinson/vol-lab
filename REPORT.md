@@ -445,7 +445,12 @@ quoting rule cannot see. Protection against adverse selection has to come from s
 else: wider quotes when flow looks informed, a shorter horizon, or not quoting at all.
 
 That is the bridge from this repository to order-book data, where markouts are measured
-rather than assumed, and where the queue decides which fills the dealer gets.
+rather than assumed, and where the queue decides which fills the dealer gets. The sequel
+is `lob-lab`, which takes this finding as its premise: it rebuilds the Deribit book,
+measures order flow imbalance after Cont, Kukanov and Stoikov (2014), and asks what
+standing aside on the strength of it costs in fills. On four minutes of live data that
+imbalance points the right way 59.8% of the time over the next 500 ms, decaying to 52.5%
+over thirty seconds.
 
 **What this does not establish.** The informed flow here is a tilt applied to the next
 step, which is the crudest possible model of information: real informed flow arrives in
