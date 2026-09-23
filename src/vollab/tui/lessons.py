@@ -224,6 +224,25 @@ LESSONS = [
             "inherits, on real order-book data."
         ),
     ),
+    Lesson(
+        key="f13_minimum_variance",
+        title="13. The smile's slope is not a hedge ratio",
+        question="My smile slopes down. Should I carry more stock or less?",
+        mechanism=(
+            "Part of the vega move is predictable from the spot move when the "
+            "two are correlated, so carrying Vega * d(vol)/dS of extra stock "
+            "hedges that part. Reading d(vol)/dS off the smile assumes implied "
+            "volatility slides with spot, which is a claim about dynamics that "
+            "the shape of the smile cannot support."
+        ),
+        takeaway=(
+            "Under rough volatility with negative correlation the two have "
+            "opposite signs: the adjustment that helps is negative, and the one "
+            "the smile suggests is positive and costs more than using no "
+            "adjustment at all. The GBM control shows the gain is hedging and "
+            "not luck: with no vega risk, every adjustment only adds variance."
+        ),
+    ),
 ]
 
 BY_KEY = {lesson.key: lesson for lesson in LESSONS}

@@ -203,6 +203,16 @@ def lesson_body(lesson, findings):
             out.append(f"    phi {phi:>4s}   {cells}")
         out += ["", f"  spread across strategies  markout {f['markout_spread']:.4f}"
                     f"   P&L toll {f['toll_spread']:.2f}"]
+    elif lesson.key == "f13_minimum_variance":
+        out.append("  sd of terminal P&L, rough Bergomi against a GBM control:")
+        for name in ("plain", "min_variance", "sticky_sign"):
+            row = f["table"]
+            out.append(f"    {name:14s} rough {row['rough'][name]['mean']:7.4f}"
+                       f"   gbm {row['gbm'][name]['mean']:7.4f}")
+        out += ["", f"  minimum variance at {f['mv_optimum']} cuts the error by"
+                    f" {f['cut_by_min_variance']:.1%}",
+                f"  the smile suggests {f['slope_the_smile_suggests']:+.5f},"
+                f" which costs {f['cost_of_the_wrong_sign']:.1%}"]
     return "\n".join(out)
 
 
