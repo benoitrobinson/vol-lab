@@ -39,6 +39,11 @@ class HedgeConfig:
     mu: float | None = None
     chunk_paths: int = 50_000
     trace_paths: tuple[int, ...] = ()
+    # Minimum-variance delta: the hedge carries Delta + mv_slope * Vega, where
+    # mv_slope stands for d(implied vol)/dS. Zero is the plain Black-Scholes
+    # delta, which is what every finding before F13 used, so leaving it out
+    # changes nothing.
+    mv_slope: float = 0.0
 
 
 @dataclass(frozen=True)

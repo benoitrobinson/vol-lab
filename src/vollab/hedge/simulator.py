@@ -14,7 +14,9 @@ import numpy as np
 from vollab.hedge.attribution import Accumulator, concat
 from vollab.hedge.config import HedgeResult
 from vollab.paths.base import GBM, generate
-from vollab.pricing.black_scholes import bs_delta, bs_gamma, bs_price, bs_theta
+from vollab.pricing.black_scholes import (
+    bs_delta, bs_gamma, bs_price, bs_theta, bs_vega,
+)
 from vollab.rng.scheme import RNG_SCHEME_VERSION
 
 _FNV_OFFSET = np.uint64(14695981039346656037)
@@ -56,6 +58,14 @@ def _run_on_paths(cfg, S, schedule):
             return np.zeros(m)
         tau = c.T - i * dt
         want = bs_delta(c.kind, S[:, i], c.K, tau, c.r, c.q, s_h)
+        if cfg.mv_slope:
+            # A delta hedge cannot touch vega, but part of the vega move is
+            # predictable from the spot move when the two are correlated.
+            # Carrying Vega * d(vol)/dS of extra stock hedges that part; the
+            # rest is what F9's floor is made of.
+            want = want + cfg.mv_slope * bs_vega(
+                c.kind, S[:, i], c.K, tau, c.r, c.q, s_h
+            )
         gam = bs_gamma(c.kind, S[:, i], c.K, tau, c.r, c.q, v.s_imp)
         trade = schedule.should_trade(
             i, cfg.n_mon, want, held_now, S[:, i], gam, dt, k
