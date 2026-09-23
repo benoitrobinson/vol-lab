@@ -208,24 +208,32 @@ def _cmd_mm(a):
     from vollab.mm.simulate import simulate_mm
 
     market = MarketParams(sigma=a.sigma, A=a.A, kappa=a.kappa,
-                          T=a.T, n_steps=a.steps)
+                          T=a.T, n_steps=a.steps, phi=a.phi)
+    dealer = DealerParams(gam=a.gam, max_inventory=a.cap,
+                          liq_cost=a.liq, liq_impact=a.impact)
     runs = {}
-    for strat in ("avellaneda_stoikov", "symmetric"):
-        runs[strat] = simulate_mm(market, DealerParams(gam=a.gam, max_inventory=a.cap),
-                                  strat, seed=a.seed, n_paths=a.paths)
+    for strat in ("avellaneda_stoikov", "glft", "symmetric"):
+        runs[strat] = simulate_mm(market, dealer, strat, seed=a.seed, n_paths=a.paths)
 
-    hdr = f"{'strategy':22s} {'pnl':>9s} {'sd':>8s} {'ratio':>7s} {'|q| max':>8s} {'fills':>7s}"
+    hdr = (f"{'strategy':22s} {'pnl':>9s} {'sd':>8s} {'ratio':>7s} {'|q| max':>8s} "
+           f"{'fills':>7s} {'unwind':>8s} {'markout':>9s}")
     print(hdr)
     for name, r in runs.items():
         print(f"{name:22s} {r.pnl.mean():9.3f} {r.pnl.std(ddof=1):8.3f} "
               f"{r.pnl.mean() / r.pnl.std(ddof=1):7.3f} "
-              f"{r.inventory_max_abs.mean():8.2f} {r.n_fills.mean():7.1f}")
+              f"{r.inventory_max_abs.mean():8.2f} {r.n_fills.mean():7.1f} "
+              f"{r.liq_paid.mean():8.3f} {r.markout_per_fill():9.4f}")
 
     a_pnl = runs["avellaneda_stoikov"].pnl
     s_pnl = runs["symmetric"].pnl
     diff, lo, hi = paired_bootstrap(a_pnl, s_pnl, n_boot=2000)
     print()
     print(f"skew minus control, paired: {diff:+.3f}  95% CI [{lo:+.3f}, {hi:+.3f}]")
+    g_diff, g_lo, g_hi = paired_bootstrap(runs["glft"].pnl, s_pnl, n_boot=2000)
+    print(f"steady state minus control: {g_diff:+.3f}  95% CI [{g_lo:+.3f}, {g_hi:+.3f}]")
+    if not a.liq and not a.phi:
+        print("\nBoth frictions are off: inventory is marked at the mid and fills know "
+              "nothing.\nTry --liq 0.5 --impact 0.005 --phi 0.3 for findings 11 and 12.")
     print(histogram(runs["avellaneda_stoikov"].inventory_end.astype(float),
                     "end inventory, with skew", bins=41))
     print(histogram(runs["symmetric"].inventory_end.astype(float),
@@ -366,6 +374,14 @@ def main(argv=None):
     mmp.add_argument("--paths", type=int, default=4000)
     mmp.add_argument("--cap", type=int, default=50)
     mmp.add_argument("--seed", type=int, default=5)
+    mmp.add_argument("--phi", type=float, default=0.0,
+                     help="fraction of arrivals that know the next move; 0 is the "
+                          "Avellaneda-Stoikov idealisation, where fills mark out at zero")
+    mmp.add_argument("--liq", type=float, default=0.0,
+                     help="cost per unit of inventory unwound at the close; 0 marks the "
+                          "leftover position at the mid, which nobody can trade at")
+    mmp.add_argument("--impact", type=float, default=0.0,
+                     help="extra unwind cost per unit squared")
     mmp.set_defaults(fn=_cmd_mm)
 
     vw = sub.add_parser("view", help="8. open the lab (lessons, charts, tools)")
