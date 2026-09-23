@@ -9,10 +9,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
 
@@ -43,8 +43,7 @@ jobs:
           git diff --exit-code -- artifacts/ REPORT.md
 
       - name: The pinned image must build and pass its own suite
-        # Not verified on the author's machine: the Docker daemon was not
-        # running when this was written. CI is the verification.
+        # CI is where the pinned image is verified.
         run: |
           docker build -t vol-lab .
           docker run --rm vol-lab pytest -q

@@ -1,6 +1,6 @@
 # What happens when you delta hedge a short option
 
-Seven findings from a Monte Carlo laboratory. Every number below is produced by
+Thirteen findings from a Monte Carlo laboratory. Every number below is produced by
 `scripts/report.py`, stored in `artifacts/findings.json`, and inserted into this file by
 `scripts/render_report.py`. Nothing here is typed by hand, and CI fails if the two
 disagree.

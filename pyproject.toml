@@ -1,7 +1,7 @@
 [project]
 name = "vollab"
 version = "0.1.0"
-description = "Monte Carlo delta-hedging laboratory"
+description = "Monte Carlo laboratory for hedging, smile arbitrage and market making"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

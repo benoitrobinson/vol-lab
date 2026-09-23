@@ -114,7 +114,7 @@ Numbered in run order, as `vl --help` lists them.
 | `vl view` | open the lab | |
 | `vl ledger` | list recorded runs | |
 
-Two worth trying first, because each shows a finding rather than describing it:
+Three worth trying first, because each shows a finding rather than describing it:
 
 ```sh
 vl surface --noise 3 --unconstrained     # watch the implied density go negative

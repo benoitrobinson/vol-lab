@@ -103,7 +103,7 @@ def main():
           f"{len(strikes)} strikes")
     print(f"a {params.a:.6f}  b {params.b:.6f}  rho {params.rho:+.6f}  "
           f"m {params.m:+.6f}  sigma {params.sigma:.6f}")
-    print(f"rmse {rmse:.5f} vol points   min Durrleman g {g.min():+.6f}   "
+    print(f"rmse {rmse * 100:.3f} vol points   min Durrleman g {g.min():+.6f}   "
           f"atm iv {np.interp(0.0, k, fitted):.4f}")
     if g.min() < 0:
         print("WARNING: the fitted slice implies a negative density; refusing to write")
@@ -117,7 +117,7 @@ def main():
         f"# from public mark IVs on {len(strikes)} out-of-the-money quotes,\n"
         f"# expiry {expiry:%Y-%m-%d} 08:00 UTC.\n"
         f"#\n"
-        f"# rmse {rmse:.5f} vol points, minimum Durrleman g {g.min():+.6f}, so the\n"
+        f"# rmse {rmse * 100:.3f} vol points, minimum Durrleman g {g.min():+.6f}, so the\n"
         f"# slice is free of butterfly arbitrage on the fitted range.\n"
         f"#\n"
         f"# Refit with:\n"
