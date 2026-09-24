@@ -42,7 +42,11 @@ SCRIPT = [
     (0.5, "r"),       # three strategies on identical paths
     (6.5, "8"),       # book: lob-lab's Rust study, run on the recorded data
     (4.0, "9"),       # contracts: contract-lab's OCaml pricer on the BTC smile
-    (8.0, "?"),       # the key table
+    (8.0, "0"),       # exercises: predict first
+    (2.5, "b"),       # commit to an answer; the real experiment grades it
+    (7.0, "g"),       # the guide to the current tab
+    (5.5, ESC),
+    (1.0, "?"),       # the key table
     (3.5, ESC),
     (1.0, "q"),
     (1.5, None),

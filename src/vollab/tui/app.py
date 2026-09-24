@@ -21,7 +21,8 @@ from textual.widgets import (
 )
 
 from vollab.protocol.ledger import Ledger
-from vollab.tui import siblings
+from vollab.tui import exercises, siblings
+from vollab.tui.guides import guide_text
 from vollab.tui.lessons import LESSONS
 
 ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -258,6 +259,8 @@ class VolLabApp(App):
     #run-detail { width: 1fr; border: solid $accent; padding: 1; }
     #lesson-list { width: 48; border: solid $accent; }
     #lesson-body { width: 1fr; padding: 1 2; }
+    #exercise-list { width: 48; border: solid $accent; }
+    #exercise-body { width: 1fr; padding: 1 2; }
     .controls { height: auto; padding: 1 2; }
     .controls Input { width: 14; margin-right: 2; }
     .controls Label { padding: 1 1 0 0; }
@@ -265,16 +268,18 @@ class VolLabApp(App):
     Button { margin-right: 2; }
     """
     TABS = ["lessons", "price", "surface", "hedge", "making", "engines", "runs",
-            "book", "contracts"]
+            "book", "contracts", "exercises"]
 
     BINDINGS = [
         ("q", "quit", "quit"),
         ("r", "refresh", "run"),
         ("question_mark", "help", "keys"),
-        # Nine digits no longer fit the footer beside q, r and ?; the tab bar
-        # names them and ? lists them.
-        *[Binding(str(i + 1), f"tab('{name}')", name, show=False)
+        ("g", "guide", "guide"),
+        # Ten digits do not fit the footer beside q, r, ? and g; the tab bar
+        # names them and ? lists them. 0 is the tenth tab, as on a keyboard.
+        *[Binding(str((i + 1) % 10), f"tab('{name}')", name, show=False)
           for i, name in enumerate(TABS)],
+        *[Binding(k, f"answer({i})", k, show=False) for i, k in enumerate("abcd")],
         ("left", "prev_tab", ""),
         ("right", "next_tab", ""),
     ]
@@ -282,10 +287,12 @@ class VolLabApp(App):
     HELP = """\
 vol-lab keys
 
-  1 .. 9        jump to a tab
+  1 .. 9, 0     jump to a tab (0 is exercises)
   left, right   previous or next tab
   r             run the current tab
   ?             this help
+  g             the guide to the current tab
+  a .. d        answer the exercise in tab 0
   q             quit
 
   tab, shift+tab   move between inputs and buttons
@@ -297,9 +304,9 @@ tabs
               measured numbers, read live from the artifact
   2 price     Black-Scholes and coin-settled prices, greeks,
               delta against spot
-  3 surface   SVI calibration; the unconstrained button shows
-              the density going negative, which is the finding
-              rather than a claim
+  3 surface   SVI calibration; unconstrained at noise 3, seed
+              3 shows the density going negative, which is the
+              finding rather than a claim
   4 hedge     one hedging experiment: the P&L histogram and
               the full explain
   5 making    three quoting strategies on identical paths,
@@ -313,6 +320,9 @@ tabs
   9 contracts contract-lab, in OCaml: a digital on the live BTC
               smile against N(d2), the pricing identities and
               the term sheets
+
+  0 exercises graded backtesting exercises: predict first,
+              then the real experiment runs and marks you
 
 Tabs 8 and 9 run the sibling repositories' own binaries, found
 beside vol-lab or through LOBLAB_HOME and CONTRACTLAB_HOME. If
@@ -357,6 +367,7 @@ rather than the finding.
                 with Horizontal(classes="controls"):
                     yield Label("T"); yield Input("1.0", id="s-t")
                     yield Label("noise"); yield Input("1.5", id="s-n")
+                    yield Label("seed"); yield Input("0", id="s-seed")
                     yield Button("fit", id="s-go", variant="primary")
                     yield Button("unconstrained", id="s-free")
                 with VerticalScroll():
@@ -398,6 +409,14 @@ rather than the finding.
                     yield Button("reprice", id="c-go", variant="primary")
                 with VerticalScroll():
                     yield Static(id="contracts-out", classes="out")
+            with TabPane("Exercises", id="exercises"):
+                with Horizontal():
+                    yield ListView(
+                        *[ListItem(Label(f"{e.tab:9s} {e.title}"), id=f"ex-{i}")
+                          for i, e in enumerate(exercises.EXERCISES)],
+                        id="exercise-list")
+                    with VerticalScroll():
+                        yield Static(id="exercise-body")
         yield Footer()
 
     def on_mount(self):
@@ -408,6 +427,7 @@ rather than the finding.
         for r in self.rows:
             table.add_row(r["ts"], r["run_id"][:8], r["config_hash"][:8], r["status"])
         self._show_lesson(0)
+        self._show_exercise(0)
         if self.rows:
             self._show_run(0)
 
@@ -421,6 +441,37 @@ rather than the finding.
     @on(ListView.Highlighted, "#lesson-list")
     def _lesson_highlighted(self, event):
         self._show_lesson(event.list_view.index or 0)
+
+    # ------------------------------------------------------------- exercises
+
+    def _exercise_index(self):
+        return self.query_one("#exercise-list", ListView).index or 0
+
+    def _show_exercise(self, index, verdict=""):
+        e = exercises.EXERCISES[index]
+        lines = [e.question, ""]
+        lines += [f"  {k}  {opt}" for k, opt in zip("abcd", e.options)]
+        lines += ["", verdict or "commit to an answer: press a, b, c or d"]
+        self.query_one("#exercise-body", Static).update("\n".join(lines))
+
+    @on(ListView.Highlighted, "#exercise-list")
+    def _exercise_highlighted(self, event):
+        self._show_exercise(event.list_view.index or 0)
+
+    def action_answer(self, choice):
+        if self.query_one(TabbedContent).active != "exercises":
+            return
+        e = exercises.EXERCISES[self._exercise_index()]
+        if choice < len(e.options):
+            self.run_exercise(self._exercise_index(), choice)
+
+    @work(thread=True, exclusive=True, group="exercise")
+    def run_exercise(self, index, choice):
+        e = exercises.EXERCISES[index]
+        self.call_from_thread(self._show_exercise, index,
+                              f"you said {e.options[choice]}; running the experiment...")
+        verdict = exercises.grade(e, choice)
+        self.call_from_thread(self._show_exercise, index, verdict)
 
     # ------------------------------------------------------------------ runs
 
@@ -460,8 +511,8 @@ rather than the finding.
         and a focused widget inside a hidden pane drags the active tab back to
         that pane, so switching tabs appears not to work at all."""
         active = self.query_one(TabbedContent).active
-        if active == "lessons":
-            self.query_one("#lesson-list", ListView).focus()
+        if active in ("lessons", "exercises"):
+            self.query_one(f"#{active[:-1]}-list", ListView).focus()
         else:
             self.query_one(Tabs).focus()
         # The sibling tabs show results rather than an experiment to set up,
@@ -489,6 +540,11 @@ rather than the finding.
 
     def action_help(self):
         self.push_screen(HelpScreen(self.HELP))
+
+    def action_guide(self):
+        titles = {e.key: e.title for e in exercises.EXERCISES}
+        tab = self.query_one(TabbedContent).active
+        self.push_screen(HelpScreen(guide_text(tab, HELP_TEXT_COLUMNS, titles)))
 
     def action_refresh(self):
         {"price": self.run_price, "surface": lambda: self.run_surface(True),
@@ -547,6 +603,7 @@ rather than the finding.
         self.call_from_thread(self._busy, "#surface-out",
                               "fitting" + ("" if constrained else " (unconstrained)"))
         T = self._num("#s-t", float, 1.0); noise = self._num("#s-n", float, 0.0)
+        seed = self._num("#s-seed", int, 0)
         S, par = 100.0, dict(v0=0.06, kap_h=2.0, th_h=0.05, xi=0.5, rho=-0.6)
         ks, ivs = [], []
         for k in np.linspace(-0.4, 0.4, 13):
@@ -560,7 +617,7 @@ rather than the finding.
                 continue
         ks, iv = np.array(ks), np.array(ivs)
         if noise:
-            iv = iv + np.random.default_rng(0).normal(0, noise / 100.0, iv.size)
+            iv = iv + np.random.default_rng(seed).normal(0, noise / 100.0, iv.size)
         try:
             p, _, diag = calibrate_svi(ks, iv, T, arb_free=constrained)
         except RuntimeError as exc:

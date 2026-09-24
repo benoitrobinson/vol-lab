@@ -79,14 +79,18 @@ for a command on your PATH.
 
 ### The lab
 
-`vl view` is the main panel. Everything lives inside it.
+`vl view` is the main panel. Everything lives inside it. Press `g` on any tab for its
+guide: what the page is for, why it exists, and what to try, with what you should see.
+The same guides are collected in [docs/TUTORIAL.md](docs/TUTORIAL.md).
 
 | key | does |
 |-----|------|
-| `1` .. `9` | jump to a tab |
+| `1` .. `9`, `0` | jump to a tab; `0` is the tenth, exercises |
 | `left`, `right` | previous or next tab, wrapping |
 | `r` | run the current tab |
 | `?` | keys and what each tab does |
+| `g` | the guide to the current tab |
+| `a` .. `d` | answer the exercise on tab 0 |
 | `q` | quit |
 | `tab`, `shift+tab` | move between inputs and buttons |
 | `enter` | press the focused button |
@@ -95,13 +99,18 @@ for a command on your PATH.
 |-----|---------------|
 | 1 lessons | the thirteen findings: the question a desk would ask, why it happens, so what, and the measured numbers read live from `artifacts/findings.json` |
 | 2 price | Black-Scholes and coin-settled prices, greeks, delta against spot |
-| 3 surface | SVI calibration, smile and implied density. The unconstrained button shows the density going negative |
+| 3 surface | SVI calibration, smile and implied density. Unconstrained at noise 3, seed 3 shows the density going negative |
 | 4 hedge | one hedging experiment: P&L histogram and the full explain |
 | 5 making | three quoting strategies on identical paths, with a paired bootstrap |
 | 6 engines | the C++ core against the NumPy reference, timed on equal work |
 | 7 runs | every recorded run with its provenance |
 | 8 book | lob-lab, in Rust: fills a queue gives you against fill-at-touch, and order flow imbalance, run on your recorded Deribit data |
 | 9 contracts | contract-lab, in OCaml: a digital on the live BTC smile against N(d2), the pricing identities and the term sheets |
+| 0 exercises | nine graded backtesting exercises: commit to a prediction, then the real experiment runs and marks it, with what was measured and why |
+
+The exercises store no answers. Each one runs its experiment when you answer and reads
+the correct option off the measurement, so they cannot drift from the code, and the four
+on lob-lab grade against whatever Deribit data you have recorded.
 
 Tabs 8 and 9 run the sibling repositories' own release binaries and draw the JSON they
 print, so neither is a dependency: clone them beside `vol-lab` (or set `LOBLAB_HOME`,
@@ -128,7 +137,7 @@ Numbered in run order, as `vl --help` lists them.
 Three worth trying first, because each shows a finding rather than describing it:
 
 ```sh
-vl surface --noise 3 --unconstrained     # watch the implied density go negative
+vl surface --noise 3 --seed 3 --unconstrained   # watch the implied density go negative
 vl mm --gam 1.0                          # where Avellaneda-Stoikov collapses and GLFT does not
 vl mm --liq 0.5 --impact 0.005 --phi 0.3 # charge for the unwind, let the flow be informed
 ```

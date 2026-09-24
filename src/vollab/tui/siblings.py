@@ -60,8 +60,7 @@ def _run_json(cmd, cwd):
 
 # ------------------------------------------------------------------ lob-lab
 
-def load_book(home=None):
-    home = Path(home or lob_home())
+def _lob_binaries(home):
     release = home / "target" / "release"
     study, ofi = release / "study", release / "measure_ofi"
     if not home.is_dir():
@@ -75,14 +74,31 @@ def load_book(home=None):
                           "committed.\n"
                           f"  cd {home} && make record     # leave it running, "
                           "then stop with ctrl-c")
-    _run([study, "--data", "data/days", "--out", "artifacts"], home)
-    with (home / "artifacts" / "runs.csv").open() as f:
+    return study, ofi
+
+
+def run_study(home, out, *args):
+    """Run lob-lab's study into `out`; returns (headline, runs)."""
+    study, _ = _lob_binaries(home)
+    _run([study, "--data", "data/days", "--out", out, *args], home)
+    with (Path(out) / "runs.csv").open() as f:
         runs = list(csv.DictReader(f))
+    return json.loads((Path(out) / "headline.json").read_text()), runs
+
+
+def run_ofi(home, *args):
+    _, ofi = _lob_binaries(home)
+    return _run_json([ofi, "--dir", "data", "--json", *args], home)
+
+
+def load_book(home=None):
+    home = Path(home or lob_home())
+    headline, runs = run_study(home, home / "artifacts")
     return {
         "home": os.path.relpath(home, ROOT),
-        "headline": json.loads((home / "artifacts" / "headline.json").read_text()),
+        "headline": headline,
         "runs": runs,
-        "ofi": _run_json([ofi, "--dir", "data", "--json"], home),
+        "ofi": run_ofi(home),
     }
 
 

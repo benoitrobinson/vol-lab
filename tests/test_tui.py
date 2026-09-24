@@ -117,7 +117,7 @@ def test_every_tab_has_a_number_key():
     from textual.binding import Binding
     keys = {b.key if isinstance(b, Binding) else b[0] for b in VolLabApp.BINDINGS}
     keys = {k for k in keys if k.isdigit()}
-    assert keys == {str(i) for i in range(1, len(VolLabApp.TABS) + 1)}
+    assert keys == {str((i + 1) % 10) for i in range(len(VolLabApp.TABS))}
 
 
 def test_help_text_documents_every_tab_and_key():
@@ -159,7 +159,7 @@ async def test_arrow_keys_wrap_around_the_tabs(tmp_path):
         await pilot.pause()
         app.action_prev_tab()
         await pilot.pause()
-        assert tabs.active == "contracts", "left from the first tab wraps to the last"
+        assert tabs.active == "exercises", "left from the first tab wraps to the last"
         app.action_next_tab()
         await pilot.pause()
         assert tabs.active == "lessons"
