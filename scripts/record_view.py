@@ -12,6 +12,7 @@ The keystrokes below are the ones the README documents, so the animation
 cannot drift from the key table without this script failing first.
 """
 
+import codecs
 import fcntl
 import json
 import os
@@ -39,7 +40,9 @@ SCRIPT = [
     (0.5, "r"),       # terminal P&L and the full explain
     (5.5, "5"),       # making
     (0.5, "r"),       # three strategies on identical paths
-    (6.5, "?"),       # the key table
+    (6.5, "8"),       # book: lob-lab's Rust study, run on the recorded data
+    (4.0, "9"),       # contracts: contract-lab's OCaml pricer on the BTC smile
+    (8.0, "?"),       # the key table
     (3.5, ESC),
     (1.0, "q"),
     (1.5, None),
@@ -60,6 +63,9 @@ def record():
 
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
     events, start = [], time.time()
+    # One decoder across reads: a chunk can end inside a multi-byte character,
+    # and decoding chunks separately turned the chart blocks into U+FFFD.
+    decode = codecs.getincrementaldecoder("utf-8")("replace").decode
     for wait, keys in SCRIPT:
         deadline = time.time() + wait
         while time.time() < deadline:
@@ -72,7 +78,7 @@ def record():
                 chunk = b""
             if not chunk:
                 break
-            events.append([time.time() - start, chunk.decode("utf-8", "replace")])
+            events.append([time.time() - start, decode(chunk)])
         if keys:
             os.write(fd, keys.encode())
     os.close(fd)

@@ -101,3 +101,27 @@ def density(k, dens, title, width=None, height=None):
     p.plot(np.asarray(k, float).tolist(), [0.0] * len(k), marker="dot", label="zero")
     p.xlabel("log-moneyness")
     return p.build()
+
+
+def bars(labels, values, title, ref=None, xlabel=None, ylabel=None,
+         width=None, height=None):
+    """One bar per label, coloured by sign. `ref` draws a horizontal line."""
+    values = np.asarray(values, float)
+    p = _plt(width, height)
+    if p is None or values.size == 0:
+        return sparkline(values, title) if values.size else title
+    p.title(title)
+    labels = [str(s) for s in labels]
+    # Two series rather than a colour per bar: plotext 5.3 misapplies a list of
+    # colours, painting one bar's colour into its neighbour.
+    p.bar(labels, np.where(values > 0, values, 0.0).tolist(), color="cyan", width=0.4)
+    if (values < 0).any():
+        p.bar(labels, np.where(values < 0, values, 0.0).tolist(),
+              color="orange", width=0.4)
+    if ref is not None:
+        p.hline(ref, "white")
+    if xlabel:
+        p.xlabel(xlabel)
+    if ylabel:
+        p.ylabel(ylabel)
+    return p.build()

@@ -28,3 +28,9 @@ def test_sparkline_reports_the_range():
 
 def test_sparkline_handles_a_flat_series():
     assert isinstance(sparkline(np.ones(5), "flat"), str)
+
+
+def test_bars_draw_both_signs_and_a_reference():
+    from vollab.render.charts import bars
+    out = bars(["0.9", "1.1"], [414.0, -225.6], "bps", ref=0.0)
+    assert "414" in out and "-225.6" in out

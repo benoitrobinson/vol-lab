@@ -18,10 +18,11 @@ Every finding below is produced by a test that fails if the engine is wrong, and
 command you can run yourself. The full write-up, including the jump floor and the
 schedule comparison, is in [REPORT.md](REPORT.md).
 
-![the lab: the findings, an SVI fit, a hedging experiment and the key table](figures/vol-lab-view.gif)
+![the lab: the findings, an SVI fit, a hedging experiment, the Rust and OCaml tabs and the key table](figures/vol-lab-view.gif)
 
 `vl view` is the whole lab in one panel: the thirteen findings with the numbers that were
-actually measured, then the tools that produced them. Charts are sized to the window,
+actually measured, then the tools that produced them, then the two sibling repositories
+run from the same panel. Charts are sized to the window,
 so the numbers under a chart stay on screen. The recording is produced by
 `scripts/record_view.py` from the keys the panel binds, so it cannot drift into
 advertising a control that no longer exists.
@@ -82,7 +83,7 @@ for a command on your PATH.
 
 | key | does |
 |-----|------|
-| `1` .. `7` | jump to a tab |
+| `1` .. `9` | jump to a tab |
 | `left`, `right` | previous or next tab, wrapping |
 | `r` | run the current tab |
 | `?` | keys and what each tab does |
@@ -99,6 +100,14 @@ for a command on your PATH.
 | 5 making | three quoting strategies on identical paths, with a paired bootstrap |
 | 6 engines | the C++ core against the NumPy reference, timed on equal work |
 | 7 runs | every recorded run with its provenance |
+| 8 book | lob-lab, in Rust: fills a queue gives you against fill-at-touch, and order flow imbalance, run on your recorded Deribit data |
+| 9 contracts | contract-lab, in OCaml: a digital on the live BTC smile against N(d2), the pricing identities and the term sheets |
+
+Tabs 8 and 9 run the sibling repositories' own release binaries and draw the JSON they
+print, so neither is a dependency: clone them beside `vol-lab` (or set `LOBLAB_HOME`,
+`CONTRACTLAB_HOME`), build them once, and the tabs fill in. Until then each tab says how
+to build it. Market data is never committed, so tab 8 shows only what you have recorded
+with `make record`.
 
 ### Commands
 
@@ -242,6 +251,7 @@ measures order flow imbalance, and asks what standing aside on the strength of i
 fills. [`contract-lab`](https://github.com/benoitrobinson/contract-lab) takes the other
 thread, the smile, and prices contracts as an algebra: an SVI slice exported from here
 shows a digital priced as a call spread sitting hundreds of basis points away from N(d2).
+Both run inside `vl view`, as tabs 8 and 9.
 
 ## References
 

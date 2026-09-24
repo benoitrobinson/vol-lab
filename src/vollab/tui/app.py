@@ -1,8 +1,8 @@
 """vol-lab: the whole laboratory in one panel.
 
 Tabs cover the findings with their charts, an interactive pricer, surface
-calibration, a hedging experiment, market making, the engine benchmark, and the
-run ledger. Compute-heavy tabs run on a worker thread so the interface never
+calibration, a hedging experiment, market making, the engine benchmark, the
+run ledger, and the two sibling repositories, lob-lab and contract-lab. Compute-heavy tabs run on a worker thread so the interface never
 blocks, and every chart is drawn by the same terminal renderer the CLI uses.
 """
 
@@ -12,6 +12,7 @@ from pathlib import Path
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
@@ -20,6 +21,7 @@ from textual.widgets import (
 )
 
 from vollab.protocol.ledger import Ledger
+from vollab.tui import siblings
 from vollab.tui.lessons import LESSONS
 
 ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -262,15 +264,17 @@ class VolLabApp(App):
     .out { padding: 1 2; }
     Button { margin-right: 2; }
     """
-    TABS = ["lessons", "price", "surface", "hedge", "making", "engines", "runs"]
+    TABS = ["lessons", "price", "surface", "hedge", "making", "engines", "runs",
+            "book", "contracts"]
 
     BINDINGS = [
         ("q", "quit", "quit"),
         ("r", "refresh", "run"),
         ("question_mark", "help", "keys"),
-        *[(str(i + 1), f"tab('{name}')", name)
-          for i, name in enumerate(["lessons", "price", "surface", "hedge",
-                                    "making", "engines", "runs"])],
+        # Nine digits no longer fit the footer beside q, r and ?; the tab bar
+        # names them and ? lists them.
+        *[Binding(str(i + 1), f"tab('{name}')", name, show=False)
+          for i, name in enumerate(TABS)],
         ("left", "prev_tab", ""),
         ("right", "next_tab", ""),
     ]
@@ -278,7 +282,7 @@ class VolLabApp(App):
     HELP = """\
 vol-lab keys
 
-  1 .. 7        jump to a tab
+  1 .. 9        jump to a tab
   left, right   previous or next tab
   r             run the current tab
   ?             this help
@@ -289,7 +293,7 @@ vol-lab keys
 
 tabs
 
-  1 lessons   the eight findings: question, mechanism and the
+  1 lessons   the thirteen findings: question, mechanism and the
               measured numbers, read live from the artifact
   2 price     Black-Scholes and coin-settled prices, greeks,
               delta against spot
@@ -303,6 +307,16 @@ tabs
   6 engines   the C++ core against the NumPy reference, at
               equal work
   7 runs      every recorded run with its provenance
+  8 book      lob-lab, in Rust: fills a queue gives you against
+              fill-at-touch, and order flow imbalance, run live
+              on your recorded Deribit data
+  9 contracts contract-lab, in OCaml: a digital on the live BTC
+              smile against N(d2), the pricing identities and
+              the term sheets
+
+Tabs 8 and 9 run the sibling repositories' own binaries, found
+beside vol-lab or through LOBLAB_HOME and CONTRACTLAB_HOME. If
+one is not built, its tab says how to build it.
 
 Numbers in the lessons come from artifacts/findings.json. If a
 lesson says to run scripts/report.py, the artifact is missing
@@ -315,6 +329,7 @@ rather than the finding.
         self.rows = Ledger(db_path).all() if db_path else []
         self.findings = (json.loads(ARTIFACT.read_text())
                          if ARTIFACT.exists() else {})
+        self._loaded = set()
 
     # ---------------------------------------------------------------- layout
 
@@ -373,6 +388,16 @@ rather than the finding.
                     yield DataTable(cursor_type="row", id="runs-table")
                     with VerticalScroll():
                         yield Static(id="run-detail")
+            with TabPane("Book", id="book"):
+                with Horizontal(classes="controls"):
+                    yield Button("rerun the study", id="k-go", variant="primary")
+                with VerticalScroll():
+                    yield Static(id="book-out", classes="out")
+            with TabPane("Contracts", id="contracts"):
+                with Horizontal(classes="controls"):
+                    yield Button("reprice", id="c-go", variant="primary")
+                with VerticalScroll():
+                    yield Static(id="contracts-out", classes="out")
         yield Footer()
 
     def on_mount(self):
@@ -424,7 +449,8 @@ rather than the finding.
     def _pressed(self, event):
         {"p-go": self.run_price, "s-go": lambda: self.run_surface(True),
          "s-free": lambda: self.run_surface(False), "h-go": self.run_hedge,
-         "m-go": self.run_mm, "b-go": self.run_bench}.get(
+         "m-go": self.run_mm, "b-go": self.run_bench, "k-go": self.run_book,
+         "c-go": self.run_contracts}.get(
             event.button.id, lambda: None)()
 
     @on(TabbedContent.TabActivated)
@@ -433,10 +459,16 @@ rather than the finding.
         focus on the tab bar instead: a focused Input swallows r and the digits,
         and a focused widget inside a hidden pane drags the active tab back to
         that pane, so switching tabs appears not to work at all."""
-        if self.query_one(TabbedContent).active == "lessons":
+        active = self.query_one(TabbedContent).active
+        if active == "lessons":
             self.query_one("#lesson-list", ListView).focus()
         else:
             self.query_one(Tabs).focus()
+        # The sibling tabs show results rather than an experiment to set up,
+        # so they load on first visit instead of waiting for r.
+        if active in ("book", "contracts") and active not in self._loaded:
+            self._loaded.add(active)
+            self.action_refresh()
 
     def action_tab(self, name):
         self.query_one(TabbedContent).active = name
@@ -461,7 +493,8 @@ rather than the finding.
     def action_refresh(self):
         {"price": self.run_price, "surface": lambda: self.run_surface(True),
          "hedge": self.run_hedge, "making": self.run_mm,
-         "engines": self.run_bench}.get(
+         "engines": self.run_bench, "book": self.run_book,
+         "contracts": self.run_contracts}.get(
             self.query_one(TabbedContent).active, lambda: None)()
 
     def _busy(self, wid, what):
@@ -671,6 +704,27 @@ rather than the finding.
                   "C++ engine computes P&L and rehedge counts only."]
         self.call_from_thread(
             lambda: self.query_one("#bench-out", Static).update("\n".join(lines)))
+
+    def _sibling(self, wid, what, load, body):
+        self.call_from_thread(self._busy, wid, what)
+        try:
+            data = load()
+        except siblings.Unavailable as exc:
+            text = Text(str(exc))
+        else:
+            cw, ch = self._chart_size(8, min_h=12)
+            text = ansi(body(data, cw, min(ch, 18)))
+        self.call_from_thread(lambda: self.query_one(wid, Static).update(text))
+
+    @work(thread=True, exclusive=True, group="book")
+    def run_book(self):
+        self._sibling("#book-out", "running lob-lab on the recorded days",
+                      siblings.load_book, siblings.book_body)
+
+    @work(thread=True, exclusive=True, group="contracts")
+    def run_contracts(self):
+        self._sibling("#contracts-out", "pricing with contract-lab",
+                      siblings.load_contracts, siblings.contracts_body)
 
 
 # Kept for the existing entry point and tests.

@@ -96,22 +96,27 @@ async def test_panel_opens_on_lessons_and_has_every_tab(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_switching_tabs_does_not_error(tmp_path):
+async def test_switching_tabs_does_not_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOBLAB_HOME", str(tmp_path / "absent"))
+    monkeypatch.setenv("CONTRACTLAB_HOME", str(tmp_path / "absent"))
     app = VolLabApp(None)
     async with app.run_test() as pilot:
         from textual.widgets import TabbedContent
         tabs = app.query_one(TabbedContent)
-        for name in ("price", "surface", "hedge", "making", "engines", "runs"):
+        for name in ("price", "surface", "hedge", "making", "engines", "runs",
+                     "book", "contracts"):
             tabs.active = name
             await pilot.pause()
-        assert tabs.active == "runs"
+        assert tabs.active == "contracts"
 
 
 # --- keys and controls --------------------------------------------------------
 
 def test_every_tab_has_a_number_key():
-    """Seven tabs, seven digits, in the order they appear."""
-    keys = {b[0] for b in VolLabApp.BINDINGS if b[0].isdigit()}
+    """One digit per tab, in the order they appear."""
+    from textual.binding import Binding
+    keys = {b.key if isinstance(b, Binding) else b[0] for b in VolLabApp.BINDINGS}
+    keys = {k for k in keys if k.isdigit()}
     assert keys == {str(i) for i in range(1, len(VolLabApp.TABS) + 1)}
 
 
@@ -154,7 +159,7 @@ async def test_arrow_keys_wrap_around_the_tabs(tmp_path):
         await pilot.pause()
         app.action_prev_tab()
         await pilot.pause()
-        assert tabs.active == "runs", "left from the first tab wraps to the last"
+        assert tabs.active == "contracts", "left from the first tab wraps to the last"
         app.action_next_tab()
         await pilot.pause()
         assert tabs.active == "lessons"
